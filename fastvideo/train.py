@@ -310,7 +310,8 @@ def main(args):
     params_to_optimize = transformer.parameters()
     params_to_optimize = list(filter(lambda p: p.requires_grad, params_to_optimize))
 
-    optimizer = torch.optim.AdamW(
+    from torch_musa.optim import FusedAdamW
+    optimizer = FusedAdamW(
         params_to_optimize,
         lr=args.learning_rate,
         betas=(0.9, 0.999),
