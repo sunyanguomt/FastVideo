@@ -13,7 +13,8 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --data_json_path /data/yanguo.sun/hunyuan-video/datasets/videos2caption.json \
     --validation_prompt_dir /data/yanguo.sun/hunyuan-video/datasets/validation \
     --gradient_checkpointing \
-    --selective_checkpointing 0.99 \
+    --master_weight_type bf16 \
+    --selective_checkpointing 0.85 \
     --train_batch_size=2 \
     --num_latent_t 32 \
     --sp_size 8 \
