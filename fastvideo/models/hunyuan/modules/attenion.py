@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 from einops import rearrange
 
 try:
@@ -8,7 +7,7 @@ except ImportError:
     print("Could not load Sliding Tile Attention.")
     sliding_tile_attention = None
 
-from fastvideo.models.flash_attn_no_pad import flash_attn_no_pad
+from fastvideo.models.flash_attn_no_pad import flash_attn_no_pad, flash_attn_no_pad_separate_qkv
 from fastvideo.utils.communications import all_gather, all_to_all_4D
 from fastvideo.utils.parallel_states import get_sequence_parallel_state, mccl_info
 
@@ -31,13 +30,8 @@ def attention(
     attn_mask=None,
     causal=False,
 ):
-
-    qkv = torch.stack([q, k, v], dim=2)
-
-    if attn_mask is not None and attn_mask.dtype != torch.bool:
-        attn_mask = attn_mask.bool()
-
-    x = flash_attn_no_pad(qkv, attn_mask, causal=causal, dropout_p=drop_rate, softmax_scale=None)
+    # Optimized: directly pass separate q, k, v to avoid torch.stack overhead
+    x = flash_attn_no_pad_separate_qkv(q, k, v, causal=causal, dropout_p=drop_rate, softmax_scale=None)
 
     b, s, a, d = x.shape
     out = x.reshape(b, s, -1)
@@ -339,14 +333,14 @@ def parallel_attention(q, k, v, img_q_len, img_kv_len, text_mask, mask_strategy=
         query = torch.cat([query, encoder_query], dim=1)
         key = torch.cat([key, encoder_key], dim=1)
         value = torch.cat([value, encoder_value], dim=1)
-        # B, S, 3, H, D
-        qkv = torch.stack([query, key, value], dim=2)
-
-        attn_mask = F.pad(text_mask, (sequence_length, 0), value=True)
-        hidden_states = flash_attn_no_pad(qkv, attn_mask, causal=False, dropout_p=0.0, softmax_scale=None)
+        # Optimized: directly pass separate q, k, v to avoid torch.stack overhead
+        hidden_states = flash_attn_no_pad_separate_qkv(
+            query, key, value,
+            causal=False, dropout_p=0.0, softmax_scale=None
+        )
 
     hidden_states, encoder_hidden_states = hidden_states.split_with_sizes((sequence_length, encoder_sequence_length),
-                                                                          dim=1)
+                                                                           dim=1)
 
     if mask_strategy[0] is not None:
         hidden_states = untile(hidden_states, mccl_info.sp_size)
