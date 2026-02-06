@@ -309,14 +309,14 @@ def get_1d_rotary_pos_embed(
         freqs_cos, freqs_sin: Precomputed frequency tensor with real and imaginary parts separately. [S, D]
     """
     if isinstance(pos, int):
-        pos = torch.arange(pos, device="musa").float()
+        pos = torch.arange(pos, device="musa", dtype=torch.float32)
 
     # proposed by reddit user bloc97, to rescale rotary embeddings to longer sequence length without fine-tuning
     # has some connection to NTK literature
     if theta_rescale_factor != 1.0:
         theta *= theta_rescale_factor**(dim / (dim - 2))
 
-    freqs = 1.0 / (theta**(torch.arange(0, dim, 2, device="musa")[:(dim // 2)].float() / dim))  # [D/2]
+    freqs = 1.0 / (theta**(torch.arange(0, dim, 2, device="musa", dtype=torch.float32)[:(dim // 2)] / dim))  # [D/2]
     # assert interpolation_factor == 1.0, f"interpolation_factor: {interpolation_factor}"
     freqs = torch.outer(pos * interpolation_factor, freqs)  # [S, D/2]
     if use_fused_rope:
