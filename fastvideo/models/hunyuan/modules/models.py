@@ -10,14 +10,116 @@ from fastvideo.models.hunyuan.modules.posemb_layers import get_nd_rotary_pos_emb
 from fastvideo.utils.parallel_states import mccl_info
 
 from .activation_layers import get_activation_layer
-from .attenion import parallel_attention
+from .attenion import parallel_attention, tile, untile, specific_all_to_all_4D, transpose_all2all_output
 from .embed_layers import PatchEmbed, TextProjection, TimestepEmbedder
 from .mlp_layers import MLP, FinalLayer, MLPEmbedder
 from .modulate_layers import ModulateDiT, apply_gate, modulate
 from .norm_layers import get_norm_layer
-from .posemb_layers import apply_rotary_emb
+from .posemb_layers import apply_rotary_emb, apply_rotary_emb_single
 from .token_refiner import SingleTokenRefiner
 
+        
+import torch
+import torch.nn.functional as F
+from einops import rearrange
+
+try:
+    from st_attn import sliding_tile_attention
+except ImportError:
+    print("Could not load Sliding Tile Attention.")
+    sliding_tile_attention = None
+
+from fastvideo.models.flash_attn_no_pad import flash_attn_no_pad
+from fastvideo.utils.communications import all_gather, all_to_all_4D
+from fastvideo.utils.parallel_states import get_sequence_parallel_state, mccl_info
+
+
+def _prehook_split_img_attn_qkv(module, state_dict, prefix, local_metadata,
+                               strict, missing_keys, unexpected_keys, error_msgs):
+    """
+    Convert checkpoint keys:
+      {prefix}img_attn_qkv.(weight|bias)
+    -> expected keys:
+      {prefix}img_attn_q.(weight|bias), img_attn_k..., img_attn_v...
+    """
+
+    w_key = prefix + "img_attn_qkv.weight"
+    b_key = prefix + "img_attn_qkv.bias"
+
+    # Only act if checkpoint provides qkv, and current module expects q/k/v
+    if w_key in state_dict:
+        W = state_dict.pop(w_key)  # Linear weight: [out, in] = [3D, D]
+        if W.ndim != 2 or W.shape[0] % 3 != 0:
+            error_msgs.append(f"[qkv split] Unexpected shape for {w_key}: {tuple(W.shape)}")
+            return
+        qW, kW, vW = W.chunk(3, dim=0)
+        state_dict[prefix + "img_attn_q.weight"] = qW
+        state_dict[prefix + "img_attn_k.weight"] = kW
+        state_dict[prefix + "img_attn_v.weight"] = vW
+
+    if b_key in state_dict:
+        B = state_dict.pop(b_key)  # bias: [3D]
+        if B.ndim != 1 or B.shape[0] % 3 != 0:
+            error_msgs.append(f"[qkv split] Unexpected shape for {b_key}: {tuple(B.shape)}")
+            return
+        qB, kB, vB = B.chunk(3, dim=0)
+        state_dict[prefix + "img_attn_q.bias"] = qB
+        state_dict[prefix + "img_attn_k.bias"] = kB
+        state_dict[prefix + "img_attn_v.bias"] = vB
+
+
+def _prehook_split_linear1(module, state_dict, prefix, local_metadata,
+                           strict, missing_keys, unexpected_keys, error_msgs):
+    """
+    Convert checkpoint keys:
+      {prefix}linear1.(weight|bias)
+    -> expected keys:
+      {prefix}linear_q.(weight|bias), linear_k..., linear_v..., linear_mlp...
+    """
+
+    w_key = prefix + "linear1.weight"
+    b_key = prefix + "linear1.bias"
+
+    # Only act if checkpoint provides linear1
+    if w_key in state_dict:
+        W = state_dict.pop(w_key)  # Linear weight: [3D + M, D]
+        # W has shape [out, in].
+        # The split in forward was: qkv, mlp = split(linear1(x), [3D, M], dim=-1)
+        # So in weight matrix (output dim is dim 0), the first 3D rows are qkv, next M rows are mlp.
+        hidden_size = module.hidden_size
+        mlp_hidden_dim = module.mlp_hidden_dim
+        
+        # Verify shape
+        expected_out_dim = 3 * hidden_size + mlp_hidden_dim
+        if W.shape[0] != expected_out_dim:
+             error_msgs.append(f"[linear1 split] Unexpected shape for {w_key}: {tuple(W.shape)}, expected out_dim={expected_out_dim}")
+             return
+
+        qkvW, mlpW = torch.split(W, [3 * hidden_size, mlp_hidden_dim], dim=0)
+        qW, kW, vW = qkvW.chunk(3, dim=0)
+
+        state_dict[prefix + "linear_q.weight"] = qW
+        state_dict[prefix + "linear_k.weight"] = kW
+        state_dict[prefix + "linear_v.weight"] = vW
+        state_dict[prefix + "linear_mlp.weight"] = mlpW
+
+    if b_key in state_dict:
+        B = state_dict.pop(b_key)
+        hidden_size = module.hidden_size
+        mlp_hidden_dim = module.mlp_hidden_dim
+        
+        expected_out_dim = 3 * hidden_size + mlp_hidden_dim
+        if B.shape[0] != expected_out_dim:
+             error_msgs.append(f"[linear1 split] Unexpected shape for {b_key}: {tuple(B.shape)}")
+             return
+
+        qkvB, mlpB = torch.split(B, [3 * hidden_size, mlp_hidden_dim], dim=0)
+        qB, kB, vB = qkvB.chunk(3, dim=0)
+        
+        state_dict[prefix + "linear_q.bias"] = qB
+        state_dict[prefix + "linear_k.bias"] = kB
+        state_dict[prefix + "linear_v.bias"] = vB
+        state_dict[prefix + "linear_mlp.bias"] = mlpB
 
 class MMDoubleStreamBlock(nn.Module):
     """
@@ -59,7 +161,12 @@ class MMDoubleStreamBlock(nn.Module):
         )
         self.img_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
-        self.img_attn_qkv = nn.Linear(hidden_size, hidden_size * 3, bias=qkv_bias, **factory_kwargs)
+        # self.img_attn_qkv = nn.Linear(hidden_size, hidden_size * 3, bias=qkv_bias, **factory_kwargs)
+        self.img_attn_q = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        self.img_attn_k = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        self.img_attn_v = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        self._register_load_state_dict_pre_hook(_prehook_split_img_attn_qkv, with_module=True)
+        
         qk_norm_layer = get_norm_layer(qk_norm_type)
         self.img_attn_q_norm = (qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **norm_layer_factory_kwargs)
                                 if qk_norm else nn.Identity())
@@ -137,28 +244,7 @@ class MMDoubleStreamBlock(nn.Module):
         # Prepare image for attention.
         img_modulated = self.img_norm1(img)
         img_modulated = modulate(img_modulated, shift=img_mod1_shift, scale=img_mod1_scale)
-        img_qkv = self.img_attn_qkv(img_modulated)
-        img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B L H D", K=3, H=self.heads_num)
-        # Apply QK-Norm if needed
-        img_q = self.img_attn_q_norm(img_q).to(img_v)
-        img_k = self.img_attn_k_norm(img_k).to(img_v)
-
-        # Apply RoPE if needed.
-        if freqs_cis is not None:
-
-            # def shrink_head(encoder_state, dim):
-            #     local_heads = encoder_state.shape[dim] // mccl_info.sp_size
-            #     return encoder_state.narrow(dim, mccl_info.rank_within_group * local_heads, local_heads)
-
-            # freqs_cis = (
-            #     shrink_head(freqs_cis[0], dim=0),
-            #     shrink_head(freqs_cis[1], dim=0),
-            # )
-            img_qq, img_kk = apply_rotary_emb(img_q, img_k, freqs_cis, head_first=False, use_fused_rope=self.use_fused_rope)
-            assert (img_qq.shape == img_q.shape and img_kk.shape == img_k.shape
-                    ), f"img_kk: {img_qq.shape}, img_q: {img_q.shape}, img_kk: {img_kk.shape}, img_k: {img_k.shape}"
-            img_q, img_k = img_qq, img_kk
-
+        
         # Prepare txt for attention.
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = modulate(txt_modulated, shift=txt_mod1_shift, scale=txt_mod1_scale)
@@ -168,15 +254,101 @@ class MMDoubleStreamBlock(nn.Module):
         txt_q = self.txt_attn_q_norm(txt_q).to(txt_v)
         txt_k = self.txt_attn_k_norm(txt_k).to(txt_v)
 
-        attn = parallel_attention(
-            (img_q, txt_q),
-            (img_k, txt_k),
-            (img_v, txt_v),
-            img_q_len=img_q.shape[1],
-            img_kv_len=img_k.shape[1],
-            text_mask=text_mask,
-            mask_strategy=mask_strategy,
-        )
+        # ===== Overlap pipeline: compute Q, start async comm, then compute K, etc. =====
+        # Compute img_q
+        img_q = self.img_attn_q(img_modulated)
+        img_q = rearrange(img_q, "B L (H D) -> B L H D", H=self.heads_num)
+        qkv_type = img_q.dtype
+        img_q = self.img_attn_q_norm(img_q).to(qkv_type)
+        
+        # Apply RoPE to img_q
+        if freqs_cis is not None:
+            img_q = apply_rotary_emb_single(img_q, freqs_cis, head_first=False, use_fused_rope=self.use_fused_rope)
+        
+        query, encoder_query = img_q, txt_q
+        query_input = query
+        if get_sequence_parallel_state():
+            query_raw = specific_all_to_all_4D(query, scatter_idx=2, gather_idx=1, alloc_id=0, async_op=True)
+        
+        # Compute img_k while Q is being communicated
+        img_k = self.img_attn_k(img_modulated)
+        img_k = rearrange(img_k, "B L (H D) -> B L H D", H=self.heads_num)
+        img_k = self.img_attn_k_norm(img_k).to(qkv_type)
+        
+        # Apply RoPE to img_k
+        if freqs_cis is not None:
+            img_k = apply_rotary_emb_single(img_k, freqs_cis, head_first=False, use_fused_rope=self.use_fused_rope)
+        
+        key, encoder_key = img_k, txt_k
+        key_input = key
+        if get_sequence_parallel_state():
+            key_raw = specific_all_to_all_4D(key, scatter_idx=2, gather_idx=1, alloc_id=1, async_op=True)
+        
+        # Compute img_v while K is being communicated
+        img_v = self.img_attn_v(img_modulated)
+        img_v = rearrange(img_v, "B L (H D) -> B L H D", H=self.heads_num)
+        value, encoder_value = img_v, txt_v
+
+        text_length = text_mask.sum()
+
+        if get_sequence_parallel_state():
+            # V sync acts as implicit barrier for Q/K
+            value = specific_all_to_all_4D(value, scatter_idx=2, gather_idx=1, alloc_id=2, async_op=False)
+            # Now Q/K comms are guaranteed complete, transpose their buffers
+            query = transpose_all2all_output(query_input, query_raw, scatter_idx=2, gather_idx=1, group=mccl_info.group)
+            key = transpose_all2all_output(key_input, key_raw, scatter_idx=2, gather_idx=1, group=mccl_info.group)
+
+            def shrink_head(encoder_state, dim):
+                local_heads = encoder_state.shape[dim] // mccl_info.sp_size
+                return encoder_state.narrow(dim, mccl_info.rank_within_group * local_heads, local_heads)
+
+            encoder_query = shrink_head(encoder_query, dim=2)
+            encoder_key = shrink_head(encoder_key, dim=2)
+            encoder_value = shrink_head(encoder_value, dim=2)
+            # [b, s, h, d]
+
+        sequence_length = query.size(1)
+        encoder_sequence_length = encoder_query.size(1)
+
+        if mask_strategy[0] is not None:
+            query = torch.cat([tile(query, mccl_info.sp_size), encoder_query], dim=1).transpose(1, 2)
+            key = torch.cat([tile(key, mccl_info.sp_size), encoder_key], dim=1).transpose(1, 2)
+            value = torch.cat([tile(value, mccl_info.sp_size), encoder_value], dim=1).transpose(1, 2)
+
+            head_num = query.size(1)
+            current_rank = mccl_info.rank_within_group
+            start_head = current_rank * head_num
+            windows = [mask_strategy[head_idx + start_head] for head_idx in range(head_num)]
+
+            hidden_states = sliding_tile_attention(query, key, value, windows, text_length).transpose(1, 2)
+        else:
+            query = torch.cat([query, encoder_query], dim=1)
+            key = torch.cat([key, encoder_key], dim=1)
+            value = torch.cat([value, encoder_value], dim=1)
+            # B, S, 3, H, D
+            qkv = torch.stack([query, key, value], dim=2)
+
+            attn_mask = F.pad(text_mask, (sequence_length, 0), value=True)
+            hidden_states = flash_attn_no_pad(qkv, attn_mask, causal=False, dropout_p=0.0, softmax_scale=None)
+
+        hidden_states, encoder_hidden_states = hidden_states.split_with_sizes((sequence_length, encoder_sequence_length),
+                                                                              dim=1)
+
+        if mask_strategy[0] is not None:
+            hidden_states = untile(hidden_states, mccl_info.sp_size)
+
+        if get_sequence_parallel_state():
+            hidden_states = all_to_all_4D(hidden_states, scatter_dim=1, gather_dim=2)
+            encoder_hidden_states = all_gather(encoder_hidden_states, dim=2).contiguous()
+
+        hidden_states = hidden_states.to(query.dtype)
+        encoder_hidden_states = encoder_hidden_states.to(query.dtype)
+
+        attn = torch.cat([hidden_states, encoder_hidden_states], dim=1)
+
+        b, s, a, d = attn.shape
+        attn = attn.reshape(b, s, -1)
+        # ===== parallel_attention inlined end =====
 
         # attention computation end
 
@@ -235,7 +407,12 @@ class MMSingleStreamBlock(nn.Module):
         self.scale = qk_scale or head_dim**-0.5
 
         # qkv and mlp_in
-        self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_hidden_dim, **factory_kwargs)
+        # self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_hidden_dim, **factory_kwargs)
+        self.linear_q = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        self.linear_k = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        self.linear_v = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        self.linear_mlp = nn.Linear(hidden_size, mlp_hidden_dim, **factory_kwargs)
+        self._register_load_state_dict_pre_hook(_prehook_split_linear1, with_module=True)
         # proj and mlp_out
         self.linear2 = nn.Linear(hidden_size + mlp_hidden_dim, hidden_size, **factory_kwargs)
 
@@ -274,40 +451,103 @@ class MMSingleStreamBlock(nn.Module):
     ) -> torch.Tensor:
         mod_shift, mod_scale, mod_gate = self.modulation(vec).chunk(3, dim=-1)
         x_mod = modulate(self.pre_norm(x), shift=mod_shift, scale=mod_scale)
-        qkv, mlp = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
-
-        q, k, v = rearrange(qkv, "B L (K H D) -> K B L H D", K=3, H=self.heads_num)
-
-        # Apply QK-Norm if needed.
-        q = self.q_norm(q).to(v)
-        k = self.k_norm(k).to(v)
-
-        # def shrink_head(encoder_state, dim):
-        #     local_heads = encoder_state.shape[dim] // mccl_info.sp_size
-        #     return encoder_state.narrow(dim, mccl_info.rank_within_group * local_heads, local_heads)
-
-        # freqs_cis = (
-        #     shrink_head(freqs_cis[0], dim=0),
-        #     shrink_head(freqs_cis[1], dim=0),
-        # )
-
+        
+        q: torch.Tensor = self.linear_q(x_mod)
+        q = rearrange(q, "B L (H D) -> B L H D", H=self.heads_num)
+        qkv_type = q.dtype
+        q = self.q_norm(q).to(qkv_type)
         img_q, txt_q = q[:, :-txt_len, :, :], q[:, -txt_len:, :, :]
+        img_qq = apply_rotary_emb_single(img_q, freqs_cis, head_first=False, use_fused_rope=self.use_fused_rope)
+        assert img_qq.shape == img_q.shape, f"img_qq: {img_qq.shape}, img_q: {img_q.shape}"
+        img_q = img_qq
+        query, encoder_query = img_q, txt_q
+        query_input = query
+        if get_sequence_parallel_state():
+            query_raw = specific_all_to_all_4D(query, scatter_idx=2, gather_idx=1, alloc_id=0, async_op=True)
+        
+        
+        k: torch.Tensor = self.linear_k(x_mod)
+        k = rearrange(k, "B L (H D) -> B L H D", H=self.heads_num)
+        k = self.k_norm(k).to(qkv_type)
         img_k, txt_k = k[:, :-txt_len, :, :], k[:, -txt_len:, :, :]
+        img_kk = apply_rotary_emb_single(img_k, freqs_cis, head_first=False, use_fused_rope=self.use_fused_rope)
+        assert img_kk.shape == img_k.shape, f"img_kk: {img_kk.shape}, img_k: {img_k.shape}"
+        img_k = img_kk
+        key, encoder_key = img_k, txt_k
+        key_input = key
+        if get_sequence_parallel_state():           
+            key_raw = specific_all_to_all_4D(key, scatter_idx=2, gather_idx=1, alloc_id=1, async_op=True)
+            
+        
+        v: torch.Tensor = self.linear_v(x_mod)
+        mlp = self.linear_mlp(x_mod)
+        v = rearrange(v, "B L (H D) -> B L H D", H=self.heads_num)
         img_v, txt_v = v[:, :-txt_len, :, :], v[:, -txt_len:, :, :]
-        img_qq, img_kk = apply_rotary_emb(img_q, img_k, freqs_cis, head_first=False, use_fused_rope=self.use_fused_rope)
-        assert (img_qq.shape == img_q.shape and img_kk.shape == img_k.shape
-                ), f"img_kk: {img_qq.shape}, img_q: {img_q.shape}, img_kk: {img_kk.shape}, img_k: {img_k.shape}"
-        img_q, img_k = img_qq, img_kk
+        value, encoder_value = img_v, txt_v
+        
 
-        attn = parallel_attention(
-            (img_q, txt_q),
-            (img_k, txt_k),
-            (img_v, txt_v),
-            img_q_len=img_q.shape[1],
-            img_kv_len=img_k.shape[1],
-            text_mask=text_mask,
-            mask_strategy=mask_strategy,
-        )
+        text_length = text_mask.sum()
+
+        if get_sequence_parallel_state():           
+            # query_raw = specific_all_to_all_4D(query, scatter_idx=2, gather_idx=1, alloc_id=0, async_op=True)
+            # key_raw = specific_all_to_all_4D(key, scatter_idx=2, gather_idx=1, alloc_id=1, async_op=True)
+            # V sync acts as implicit barrier for Q/K
+            value = specific_all_to_all_4D(value, scatter_idx=2, gather_idx=1, alloc_id=2, async_op=False)
+            # Now Q/K comms are guaranteed complete, transpose their buffers
+            query = transpose_all2all_output(query_input, query_raw, scatter_idx=2, gather_idx=1, group=mccl_info.group)
+            key = transpose_all2all_output(key_input, key_raw, scatter_idx=2, gather_idx=1, group=mccl_info.group)
+
+            def shrink_head(encoder_state, dim):
+                local_heads = encoder_state.shape[dim] // mccl_info.sp_size
+                return encoder_state.narrow(dim, mccl_info.rank_within_group * local_heads, local_heads)
+
+            encoder_query = shrink_head(encoder_query, dim=2)
+            encoder_key = shrink_head(encoder_key, dim=2)
+            encoder_value = shrink_head(encoder_value, dim=2)
+            # [b, s, h, d]
+
+        sequence_length = query.size(1)
+        encoder_sequence_length = encoder_query.size(1)
+
+        if mask_strategy[0] is not None:
+            query = torch.cat([tile(query, mccl_info.sp_size), encoder_query], dim=1).transpose(1, 2)
+            key = torch.cat([tile(key, mccl_info.sp_size), encoder_key], dim=1).transpose(1, 2)
+            value = torch.cat([tile(value, mccl_info.sp_size), encoder_value], dim=1).transpose(1, 2)
+
+            head_num = query.size(1)
+            current_rank = mccl_info.rank_within_group
+            start_head = current_rank * head_num
+            windows = [mask_strategy[head_idx + start_head] for head_idx in range(head_num)]
+
+            hidden_states = sliding_tile_attention(query, key, value, windows, text_length).transpose(1, 2)
+        else:
+            query = torch.cat([query, encoder_query], dim=1)
+            key = torch.cat([key, encoder_key], dim=1)
+            value = torch.cat([value, encoder_value], dim=1)
+            # B, S, 3, H, D
+            qkv = torch.stack([query, key, value], dim=2)
+
+            attn_mask = F.pad(text_mask, (sequence_length, 0), value=True)
+            hidden_states = flash_attn_no_pad(qkv, attn_mask, causal=False, dropout_p=0.0, softmax_scale=None)
+
+        hidden_states, encoder_hidden_states = hidden_states.split_with_sizes((sequence_length, encoder_sequence_length),
+                                                                              dim=1)
+
+        if mask_strategy[0] is not None:
+            hidden_states = untile(hidden_states, mccl_info.sp_size)
+
+        if get_sequence_parallel_state():
+            hidden_states = all_to_all_4D(hidden_states, scatter_dim=1, gather_dim=2)
+            encoder_hidden_states = all_gather(encoder_hidden_states, dim=2).contiguous()
+
+        hidden_states = hidden_states.to(query.dtype)
+        encoder_hidden_states = encoder_hidden_states.to(query.dtype)
+
+        attn = torch.cat([hidden_states, encoder_hidden_states], dim=1)
+
+        b, s, a, d = attn.shape
+        attn = attn.reshape(b, s, -1)
+        # ===== parallel_attention inlined end =====
 
         # attention computation end
 

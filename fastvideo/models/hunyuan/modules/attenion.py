@@ -12,6 +12,16 @@ from fastvideo.models.flash_attn_no_pad import flash_attn_no_pad
 from fastvideo.utils.communications import all_gather, all_to_all_4D
 from fastvideo.utils.parallel_states import get_sequence_parallel_state, mccl_info
 
+import torch.distributed as dist
+group = None
+try:
+    from videogenkern import CeComm
+    USE_CE = True
+except:
+    USE_CE = False
+
+_GLOBAL_CE_COMM = None
+
 
 def attention(
     q,
@@ -58,6 +68,233 @@ def untile(x, sp_size):
     return rearrange(x, "b (t sp h w) head d -> b (sp t h w) head d", sp=sp_size, t=30 // sp_size, h=48, w=80)
 
 
+def _specific_all_to_all_4D(input: torch.tensor,
+                  scatter_idx: int = 2,
+                  gather_idx: int = 1,
+                  alloc_id: int = None,
+                  use_sync: bool = False,
+                  async_op: bool = False):
+    assert (
+        input.dim() == 4
+    ), f"input must be 4D tensor, got {input.dim()} and shape {input.shape}"
+
+    from fastvideo.utils.parallel_states import mccl_info
+    global group
+    if group is None:
+        group = mccl_info.group
+    
+    # ulyssess pg
+    seq_world_size = torch.distributed.get_world_size(group)
+    # if not USE_CE: 
+    if USE_CE: # disable ce_comm for a stable commit
+        global _GLOBAL_CE_COMM
+        if _GLOBAL_CE_COMM is None:
+            import torch.distributed as dist
+            _GLOBAL_CE_COMM = CeComm(group=group, rank=dist.get_rank(group=group), num_ranks=dist.get_world_size(group=group))
+        ce_comm = _GLOBAL_CE_COMM
+
+        if scatter_idx == 2 and gather_idx == 1:
+            bs, shard_seq_len, hc, hs = input.shape
+            seqlen = shard_seq_len * seq_world_size
+            shard_hc = hc // seq_world_size
+            
+            # (bs, seqlen/P, hc, hs) -> (P, seq_len/P, bs, hc/P, hs)
+            input_t: torch.Tensor = input.reshape(bs, shard_seq_len, seq_world_size, shard_hc, hs).transpose(0, 2)
+            alloc_sizes = list(input_t.size())
+            alloc_strides = [1] * len(alloc_sizes)
+            for i in range(len(alloc_sizes) - 2, -1 ,-1):
+                alloc_strides[i] = alloc_sizes[i + 1] * alloc_strides[i + 1]
+            all2all_input = ce_comm.alloc_tensor(
+                sizes=alloc_sizes,
+                strides=alloc_strides,
+                dtype=input_t.dtype,
+                alloc_id=alloc_id,
+            )  # all2all_input should be in contiguous memory format
+            all2all_input.copy_(input_t)
+            all2all_output = torch.empty_like(all2all_input, device="musa")
+            assert (
+                not all2all_input.is_cpu and not all2all_output.is_cpu
+            ), "all2all buffer tensor must on device"
+                
+            if seq_world_size > 1:
+                ce_comm.all_to_all_single(all2all_output, all2all_input, async_op=async_op)
+                if use_sync:
+                    torch.musa.synchronize()
+            else:
+                all2all_output = all2all_input
+            
+            if not async_op:
+                all2all_output = all2all_output.reshape(seqlen, bs, shard_hc, hs)
+                all2all_output = all2all_output.transpose(0, 1).contiguous().reshape(bs, seqlen, shard_hc, hs)
+
+            return all2all_output
+        
+        elif scatter_idx == 1 and gather_idx == 2:
+            bs, seqlen, shard_hc, hs = input.shape
+            hc = shard_hc * seq_world_size
+            shard_seqlen = seqlen // seq_world_size
+            
+            # (bs, seqlen, hc/P, hs) -> (P, hc/P, seqlen/P, bs, hs)
+            input_t = input.reshape(bs, seq_world_size, shard_seqlen, shard_hc, hs).transpose(0, 3).transpose(0, 1)
+            alloc_sizes = list(input_t.size())
+            alloc_strides = [1] * len(alloc_sizes)
+            for i in range(len(alloc_sizes) - 2, -1 ,-1):
+                alloc_strides[i] = alloc_sizes[i + 1] * alloc_strides[i + 1]
+            all2all_input = ce_comm.alloc_tensor(
+                sizes=alloc_sizes,
+                strides=alloc_strides,
+                dtype=input_t.dtype,
+                alloc_id=alloc_id,
+            )
+            all2all_input.copy_(input_t)
+            all2all_output = torch.empty_like(all2all_input, device="musa")
+            assert (
+                not all2all_input.is_cpu and not all2all_output.is_cpu
+            ), "all2all buffer tensor must on device"
+            
+            if seq_world_size > 1:
+                ce_comm.all_to_all_single(all2all_output, all2all_input, async_op=async_op)
+                if use_sync:
+                    torch.musa.synchronize()
+            else:
+                all2all_output = all2all_input
+            
+            if not async_op:
+                all2all_output = all2all_output.reshape(hc, shard_seqlen, bs, hs)
+                all2all_output = all2all_output.transpose(0, 2).contiguous().reshape(bs, shard_seqlen, hc, hs)
+            
+            return all2all_output
+        else:
+            raise RuntimeError("scatter_idx must be 1 or 2 and gather_idx must be 1 or 2")
+        
+    import torch.distributed as dist
+    if scatter_idx == 2 and gather_idx == 1:
+        bs, shard_seq_len, hc, hs = input.shape
+        seqlen = shard_seq_len * seq_world_size
+        shard_hc = hc // seq_world_size
+        
+        # (bs, seqlen/P, hc, hs) ---> (P, seq_len/P, bs, hc/P, hs)
+        input_t: torch.Tensor = input.reshape(bs, shard_seq_len, seq_world_size, shard_hc, hs).transpose(0, 2).contiguous()
+        assert (
+            not input_t.is_cpu
+        ), "input tensor must on device"
+        all2all_input = input_t
+
+        all2all_output = torch.empty_like(all2all_input, device="musa")
+
+        if seq_world_size > 1:
+            dist.all_to_all_single(all2all_output, all2all_input, async_op=async_op)
+            if use_sync:
+                torch.musa.synchronize()
+        else:
+           all2all_output = all2all_input
+        if not async_op:
+            all2all_output = all2all_output.reshape(seqlen, bs, shard_hc, hs)
+            all2all_output = all2all_output.transpose(0, 1).contiguous().reshape(bs, seqlen, shard_hc, hs)
+
+        return all2all_output
+    
+    elif scatter_idx == 1 and gather_idx == 2:
+        bs, seqlen, shard_hc, hs = input.shape
+        hc = shard_hc * seq_world_size
+        shard_seqlen = seqlen // seq_world_size
+
+        # (bs, seqlen, hc/P, hs) ---> (bs, P, seqlen/P, hc/P, hs) ---> (hc/P, P, seqlen/P, bs, hs) ---> (P, hc/P, seqlen/P, bs, hs)
+        input_t = input.reshape(bs, seq_world_size, shard_seqlen, shard_hc, hs).transpose(0, 3).transpose(0, 1).contiguous()
+        all2all_input = input_t
+
+        all2all_output = torch.empty_like(all2all_input, device="musa")
+        if seq_world_size > 1:
+            dist.all_to_all_single(all2all_output, all2all_input, async_op=async_op)
+            if use_sync:
+                torch.musa.synchronize()
+        else:
+            all2all_output = all2all_input
+        if not async_op:
+            all2all_output = all2all_output.reshape(hc, shard_seqlen, bs, hs)
+            all2all_output = all2all_output.transpose(0, 2).contiguous().reshape(bs, shard_seqlen, hc, hs)
+
+        return all2all_output
+    else:
+        raise RuntimeError("scatter_idx must be 1 or 2 and gather_idx must be 1 or 2")
+
+
+class SpecificSeqAllToAll4D(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, scatter_idx=2, gather_idx=1, alloc_id=None, use_sync=False, async_op=False):
+        ctx.scatter_idx = scatter_idx
+        ctx.gather_idx = gather_idx
+        ctx.use_sync = use_sync
+        ctx.async_op = async_op
+        ctx.alloc_id = alloc_id
+        # Save input shape for backward when async_op=True to reconstruct 4D shape
+        ctx.input_shape = input.shape
+        return _specific_all_to_all_4D(input, scatter_idx, gather_idx, alloc_id, use_sync, async_op)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # When async_op=True in forward, the output was 5D (raw buffer).
+        # Thus, grad_output arriving here is also 5D.
+        # But the underlying _specific_all_to_all_4D expects a 4D tensor.
+        if ctx.async_op and grad_output.dim() == 5:
+            # We need to reshape/transpose the 5D gradient back to the expected 4D shape.
+            # We can reuse transpose_all2all_output logic which handles the 5D->4D conversion.
+            # Note: transpose_all2all_output is defined later in this file, so we assume it's available.
+            from fastvideo.utils.parallel_states import mccl_info
+            
+            # Create a dummy tensor with the original 4D shape to guide the transposition logic
+            # We use empty() to avoid memory overhead, just need shape/dtype/device
+            dummy_input = torch.empty(ctx.input_shape, device=grad_output.device, dtype=grad_output.dtype)
+            
+            grad_output = transpose_all2all_output(
+                dummy_input,
+                grad_output,
+                scatter_idx=ctx.scatter_idx,
+                gather_idx=ctx.gather_idx,
+                group=mccl_info.group
+            )
+        
+        # We must use synchronous execution for backward pass
+        d_input = SpecificSeqAllToAll4D.apply(grad_output, ctx.gather_idx, ctx.scatter_idx, ctx.alloc_id, ctx.use_sync,
+                                              False)
+        return d_input, None, None, None, None, None
+
+
+@torch.compiler.disable
+def specific_all_to_all_4D(input: torch.tensor,
+                           scatter_idx: int = 2,
+                           gather_idx: int = 1,
+                           alloc_id: int  = None,
+                           use_sync: bool = False,
+                           async_op: bool = False):
+    return SpecificSeqAllToAll4D.apply(input, scatter_idx, gather_idx, alloc_id, use_sync, async_op)
+
+
+def transpose_all2all_output(all2all_input, all2all_output, scatter_idx=2, gather_idx=1, group=None):
+    """
+    Manually transpose the raw all2all output buffer after async communication completes.
+    This is used when async_op=True, since the output buffer is not reshaped in that case.
+    """
+    seq_world_size = torch.distributed.get_world_size(group)
+    if scatter_idx == 2 and gather_idx == 1:
+        bs, shard_seq_len, hc, hs = all2all_input.shape
+        seqlen = shard_seq_len * seq_world_size
+        shard_hc = hc // seq_world_size
+        all2all_output = all2all_output.reshape(seqlen, bs, shard_hc, hs)
+        all2all_output = all2all_output.transpose(0, 1).contiguous().reshape(bs, seqlen, shard_hc, hs)
+        return all2all_output
+    elif scatter_idx == 1 and gather_idx == 2:
+        bs, seqlen, shard_hc, hs = all2all_input.shape
+        hc = shard_hc * seq_world_size
+        shard_seqlen = seqlen // seq_world_size
+        all2all_output = all2all_output.reshape(hc, shard_seqlen, bs, hs)
+        all2all_output = all2all_output.transpose(0, 2).contiguous().reshape(bs, shard_seqlen, hc, hs)
+        return all2all_output
+    else:
+        raise RuntimeError("scatter_idx must be 1 or 2 and gather_idx must be 1 or 2")
+
+
 def parallel_attention(q, k, v, img_q_len, img_kv_len, text_mask, mask_strategy=None):
     query, encoder_query = q
     key, encoder_key = k
@@ -65,10 +302,15 @@ def parallel_attention(q, k, v, img_q_len, img_kv_len, text_mask, mask_strategy=
     text_length = text_mask.sum()
 
     if get_sequence_parallel_state():
-        # batch_size, seq_len, attn_heads, head_dim
-        query = all_to_all_4D(query, scatter_dim=2, gather_dim=1)
-        key = all_to_all_4D(key, scatter_dim=2, gather_dim=1)
-        value = all_to_all_4D(value, scatter_dim=2, gather_dim=1)
+        query_input = query  # save original input shape for transpose
+        key_input = key
+        query_raw = specific_all_to_all_4D(query, scatter_idx=2, gather_idx=1, alloc_id=0, async_op=True)
+        key_raw = specific_all_to_all_4D(key, scatter_idx=2, gather_idx=1, alloc_id=1, async_op=True)
+        # V sync acts as implicit barrier for Q/K
+        value = specific_all_to_all_4D(value, scatter_idx=2, gather_idx=1, alloc_id=2, async_op=False)
+        # Now Q/K comms are guaranteed complete, transpose their buffers
+        query = transpose_all2all_output(query_input, query_raw, scatter_idx=2, gather_idx=1, group=mccl_info.group)
+        key = transpose_all2all_output(key_input, key_raw, scatter_idx=2, gather_idx=1, group=mccl_info.group)
 
         def shrink_head(encoder_state, dim):
             local_heads = encoder_state.shape[dim] // mccl_info.sp_size
