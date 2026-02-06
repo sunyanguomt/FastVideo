@@ -12,7 +12,7 @@ def _to_tuple(x, dim=2):
         raise ValueError(f"Expected length {dim} or int, but got {x}")
 
 
-def get_meshgrid_nd(start, *args, dim=2):
+def get_meshgrid_nd(start, *args, dim=2, device="musa"):
     """
     Get n-D meshgrid with start, stop and num.
 
@@ -49,7 +49,7 @@ def get_meshgrid_nd(start, *args, dim=2):
     axis_grid = []
     for i in range(dim):
         a, b, n = start[i], stop[i], num[i]
-        g = torch.linspace(a, b, n + 1, dtype=torch.float32)[:n]
+        g = torch.linspace(a, b, n + 1, dtype=torch.float32, device=device)[:n]
         axis_grid.append(g)
     grid = torch.meshgrid(*axis_grid, indexing="ij")  # dim x [W, H, D]
     grid = torch.stack(grid, dim=0)  # [dim, W, H, D]
@@ -286,6 +286,7 @@ def get_1d_rotary_pos_embed(
     theta_rescale_factor: float = 1.0,
     interpolation_factor: float = 1.0,
     use_fused_rope: bool = False,
+    device: str = "musa",
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
     Precompute the frequency tensor for complex exponential (cis) with given dimensions.
@@ -308,14 +309,14 @@ def get_1d_rotary_pos_embed(
         freqs_cos, freqs_sin: Precomputed frequency tensor with real and imaginary parts separately. [S, D]
     """
     if isinstance(pos, int):
-        pos = torch.arange(pos).float()
+        pos = torch.arange(pos, device="musa", dtype=torch.float32)
 
     # proposed by reddit user bloc97, to rescale rotary embeddings to longer sequence length without fine-tuning
     # has some connection to NTK literature
     if theta_rescale_factor != 1.0:
         theta *= theta_rescale_factor**(dim / (dim - 2))
 
-    freqs = 1.0 / (theta**(torch.arange(0, dim, 2)[:(dim // 2)].float() / dim))  # [D/2]
+    freqs = 1.0 / (theta**(torch.arange(0, dim, 2, device="musa", dtype=torch.float32)[:(dim // 2)] / dim))  # [D/2]
     # assert interpolation_factor == 1.0, f"interpolation_factor: {interpolation_factor}"
     freqs = torch.outer(pos * interpolation_factor, freqs)  # [S, D/2]
     if use_fused_rope:
