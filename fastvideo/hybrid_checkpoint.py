@@ -534,7 +534,7 @@ def hybrid_checkpoint_wrapper(
 
 # selective activation checkpoint operator list
 _save_list = {
-    torch.ops.aten.mm.default,
+    #torch.ops.aten.mm.default,
     torch.ops.aten.addmm.default,  # WanAttentionBlock use linear with bias
     #torch.ops.musa.flash_attn_varlen_forward.default,
     #torch.ops.aten._scaled_dot_product_attention_flash_musa.default,
@@ -562,11 +562,10 @@ def _apply_hybrid_sac_to_transformer_block(module: nn.Module, noop=False):
             if func == torch.ops.aten.addmm.default:
                 meta[addmm_count_key] += 1
 
-            #to_save = func in _save_list and not (
-            #    func == torch.ops.aten.addmm.default and (
-            #        meta[addmm_count_key] % 10 != 0)
-            #)
-            to_save = func in _save_list
+            to_save = func in _save_list and not (
+                func == torch.ops.aten.addmm.default and (
+                    meta[addmm_count_key] % 10 != 0)
+            )
 
             if to_save:
                 if func in _cpu_save_list:

@@ -1,3 +1,11 @@
+```
+bash run.sh
+```
+
+
+
+
+
 <div align="center">
 <img src=assets/logo.jpg width="30%"/>
 </div>
