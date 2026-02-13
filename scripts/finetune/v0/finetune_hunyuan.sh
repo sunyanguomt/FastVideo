@@ -12,8 +12,6 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --cache_dir /data/yanguo.sun/hunyuan-video/.cache \
     --data_json_path /data/yanguo.sun/hunyuan-video/datasets/videos2caption.json \
     --validation_prompt_dir /data/yanguo.sun/hunyuan-video/datasets/validation \
-    --gradient_checkpointing \
-    --selective_checkpointing 0.99 \
     --train_batch_size=2 \
     --num_latent_t 32 \
     --sp_size 8 \
@@ -41,3 +39,7 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --validation_guidance_scale "1.0" \
     --use_fused_rmsnorm \
     --use_fused_rope \
+    --enable_selective_ac
+    #--enable_hybrid_ac
+    #--gradient_checkpointing \
+    #--selective_checkpointing 0.99 \
