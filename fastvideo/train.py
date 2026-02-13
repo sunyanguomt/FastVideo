@@ -302,6 +302,28 @@ def main(args):
     if args.gradient_checkpointing:
         apply_fsdp_checkpointing(transformer, no_split_modules, args.selective_checkpointing)
 
+    if args.enable_selective_ac:
+        from hybrid_checkpoint import _apply_selective_ac_to_transformer_block
+        for idx, block in enumerate(transformer.double_blocks):
+            transformer_block = _apply_selective_ac_to_transformer_block(block)
+            transformer.double_blocks[idx] = transformer_block
+        for idx, block in enumerate(transformer.single_blocks):
+            transformer_block = _apply_selective_ac_to_transformer_block(block)
+            transformer.single_blocks[idx] = transformer_block
+
+    if args.enable_hybrid_ac:
+        #os.environ["USE_CUSTOM_VARLEN_FA"] = "1"
+        # attention: you need to disable gradient checkpoint when enable_hybrid_ac
+        from hybrid_checkpoint import _apply_hybrid_sac_to_transformer_block, set_hybrid_offload_handler
+        set_hybrid_offload_handler(len(transformer.double_blocks) + len(transformer.single_blocks))
+        for idx, block in enumerate(transformer.double_blocks):
+            transformer_block = _apply_hybrid_sac_to_transformer_block(block)
+            transformer.double_blocks[idx] = transformer_block
+        for idx, block in enumerate(transformer.single_blocks):
+            transformer_block = _apply_hybrid_sac_to_transformer_block(block)
+            transformer.single_blocks[idx] = transformer_block
+
+
     # Set model as trainable.
     transformer.train()
 
@@ -644,6 +666,16 @@ if __name__ == "__main__":
         "--use_cpu_offload",
         action="store_true",
         help="Whether to use CPU offload for param & gradient & optimizer states.",
+    )
+    parser.add_argument(
+        "--enable_selective_ac",
+        action="store_true",
+        help="enable selective activation checkpoint",
+    )
+    parser.add_argument(
+        "--enable_hybrid_ac",
+        action="store_true",
+        help="enable hybrid selective activation checkpoint && activation offload",
     )
 
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
