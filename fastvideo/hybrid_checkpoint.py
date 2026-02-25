@@ -168,16 +168,10 @@ class HybridOffloadHandler:
         # from layer 0. If a prior backward did not traverse all wrapped layers,
         # current_layer may be non-zero here, which will misalign offload/reload.
         if not (0 <= self.current_layer <= self.num_layers):
-            try:
-                raise RuntimeError(
-                    f"[hybrid-ac] current_layer exceeded num_layers after forward: "
-                    f"current_layer={self.current_layer}, num_layers={self.num_layers}"
-                )
-            except:
-                # print(f"[hybrid-ac] current_layer exceeded num_layers after forward: "
-                #     f"current_layer={self.current_layer}, num_layers={self.num_layers}")
-                ...
-
+            raise RuntimeError(
+                f"[hybrid-ac] current_layer exceeded num_layers after forward: "
+                f"current_layer={self.current_layer}, num_layers={self.num_layers}"
+            )
         if self.current_layer > 0:
             # ensure previous layer kernel are finished
             self.d2h_stream.wait_stream(self.main_stream)
@@ -195,15 +189,10 @@ class HybridOffloadHandler:
 
         self.current_layer += 1
         if self.current_layer > self.num_layers:
-            try:
-                raise RuntimeError(
-                    f"[hybrid-ac] current_layer exceeded num_layers after forward: "
-                    f"current_layer={self.current_layer}, num_layers={self.num_layers}"
-                )
-            except:
-                # print(f"[hybrid-ac] current_layer exceeded num_layers after forward: "
-                #     f"current_layer={self.current_layer}, num_layers={self.num_layers}")
-                ...
+            raise RuntimeError(
+                f"[hybrid-ac] current_layer exceeded num_layers after forward: "
+                f"current_layer={self.current_layer}, num_layers={self.num_layers}"
+            )
     def layer_pre_backward_hook(self):
         self.current_layer -= 1
         # assert self.current_layer >= 0
@@ -373,9 +362,11 @@ class _HybridCachedTorchDispatchMode(TorchDispatchMode):
             #     lambda x: x.get_val(self.allow_cache_entry_mutation), storage.pop(0)
             # )
             cached_wrappered_object = storage.pop(0)
-            dev, t = cached_wrappered_object.val
-            t = t.to(dev)
-            out = t
+            if type(cached_wrappered_object.val) != type(()):
+                out = cached_wrappered_object.val
+            else:
+                dev, t = cached_wrappered_object.val
+                out = t.to(dev)
         else:
             out = func(*args, **kwargs)
         return out
@@ -462,23 +453,6 @@ class HybridOffloadTailModule(torch.autograd.Function):
         offload_handler = ctx.offload_handler
         offload_handler.layer_pre_backward_hook()
         return None, output_grad
-    
-class HybridOffloadTailModuleDebug(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, offload_handler: HybridOffloadHandler):
-        offload_handler.layer_post_forward_hook()
-        ctx.offload_handler = offload_handler
-
-    @staticmethod
-    def backward(ctx, output_grad):
-        rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-        if rank == 0:
-                print(type(output_grad))
-                print(len(output_grad)) if type(output_grad) == type(()) else ...
-        offload_handler = ctx.offload_handler
-        offload_handler.layer_pre_backward_hook()
-        return None
-
 
 
 class HybridCheckpointWrapper(ActivationWrapper):
@@ -613,60 +587,27 @@ class HybridCheckpointWrapper(ActivationWrapper):
                 self._checkpoint_wrapped_module, *new_inputs, **kwargs
             )
 
-        # # debug
-        # if True:
-        #     try:
-        #         rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-        #     except Exception:
-        #         rank = 0
-
-        #     if rank == 0:
-        #         def _summ(x):
-        #             if isinstance(x, torch.Tensor):
-        #                 return {
-        #                     "shape": tuple(x.shape),
-        #                     "dtype": str(x.dtype),
-        #                     "device": str(x.device),
-        #                     "requires_grad": bool(x.requires_grad),
-        #                     "is_leaf": bool(x.is_leaf),
-        #                     "grad_fn": type(x.grad_fn).__name__ if x.grad_fn is not None else None,
-        #                     # "otherinfo": x,
-        #                 }
-        #             return {"type": type(x).__name__}
-
-        #         if isinstance(output, torch.Tensor):
-        #             out0 = output
-        #         elif isinstance(output, (list, tuple)) and len(output) > 0:
-        #             out0 = output[0]
-        #         elif isinstance(output, dict) and len(output) > 0:
-        #             out0 = next(iter(output.values()))
-        #         else:
-        #             out0 = output
-
-        #         print(
-        #             "[hybrid-ac][dbg] output:",
-        #             {
-        #                 "layer": int(getattr(self.hybrid_handler, "current_layer", -999)),
-        #                 "module": type(self._checkpoint_wrapped_module).__name__,
-        #                 "out0": _summ(out0),
-        #             },
-        #             flush=True,
-        #         )
-
-        # step3: apply OffloadTailModule
-        # result =  HybridOffloadTailModule.apply(self.hybrid_handler, output)
-        # if True:
-        #     try:
-        #         rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-        #     except Exception:
-        #         rank = 0
-
-        #     if rank == 0:
-        #         for i, item in enumerate(result):
-        #             print(f"[debug before outside] [{type(self._checkpoint_wrapped_module).__name__}]", i, item.grad_fn, item.shape)
-
-
-        HybridOffloadTailModuleDebug.apply(self.hybrid_handler)
+        # step3: apply OffloadTailModule (transparent hook, no gradient impact)
+        current_layer = self.hybrid_handler.current_layer
+        self.hybrid_handler.layer_post_forward_hook()
+        
+        def make_hook(offload_handler, layer_id):
+            def hook(grad):
+                if offload_handler.current_layer == layer_id + 1:
+                    # rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
+                    # if rank == 0:
+                    #     print(f"[hook trigger] layer_id={layer_id}, current_layer={offload_handler.current_layer}")
+                    offload_handler.layer_pre_backward_hook()
+                return grad
+            return hook
+        
+        if isinstance(output, tuple):
+            for t in output:
+                if isinstance(t, torch.Tensor):
+                    t.register_hook(make_hook(self.hybrid_handler, current_layer))
+        elif isinstance(output, torch.Tensor):
+            output.register_hook(make_hook(self.hybrid_handler, current_layer))
+        
         return output
 
 
