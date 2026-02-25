@@ -857,6 +857,10 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         for index, block in enumerate(self.double_blocks):
             double_block_args = [img, txt, vec, freqs_cis, text_mask, mask_strategy[index]]
             img, txt = block(*double_block_args)
+            rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
+            if rank == 0:
+                print(block.__class__.__name__)
+                print("[调用后检查:]", img.grad_fn, txt.grad_fn)
         # Merge txt and img to pass through single stream blocks.
         x = torch.cat((img, txt), 1)
         if output_features:
