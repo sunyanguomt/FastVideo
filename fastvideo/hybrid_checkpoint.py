@@ -340,13 +340,6 @@ class _HybridCachedTorchDispatchMode(TorchDispatchMode):
             )
             or is_compiling
         ):
-            # # debug: 观察为什么这个算子会执行 # 记录: 由于MUST_SAVE_OFFLOAD 算子是当前指定的aten.addmm.defaultaten.addmm.default
-            # print(policy)
-            # # debug: 观察这是什么算子
-            # try:
-            #     print(str(func))
-            # except Exception:
-            #     print(repr(func))
             storage = self.storage.get(func)
             if storage is None:
                 raise RuntimeError(
@@ -438,18 +431,10 @@ class HybridOffloadTailModule(torch.autograd.Function):
     def forward(ctx, offload_handler: HybridOffloadHandler, tensor):
         offload_handler.layer_post_forward_hook()
         ctx.offload_handler = offload_handler
-        rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-        if rank == 0:
-                print(type(tensor))
-                print(len(tensor)) if type(tensor) == type(()) else ...
         return tensor
 
     @staticmethod
     def backward(ctx, output_grad):
-        rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-        if rank == 0:
-                print(type(output_grad))
-                print(len(output_grad)) if type(output_grad) == type(()) else ...
         offload_handler = ctx.offload_handler
         offload_handler.layer_pre_backward_hook()
         return None, output_grad
@@ -472,7 +457,6 @@ class HybridCheckpointWrapper(ActivationWrapper):
     ):
         super().__init__(mod)
         self.checkpoint_impl = checkpoint_impl
-        # import debugpy; debugpy.breakpoint()
         if checkpoint_fn is None:
             # use torch.utils.checkpoint
             self.checkpoint_fn = partial(
@@ -491,7 +475,6 @@ class HybridCheckpointWrapper(ActivationWrapper):
 
     @torch.compiler.disable
     def forward(self, *args, **kwargs):
-        # import debugpy; debugpy.breakpoint()
         # step1: apply OffloadHeadModule
         #
         # IMPORTANT detach rules:
@@ -513,42 +496,6 @@ class HybridCheckpointWrapper(ActivationWrapper):
                 detachs.append(True)
                 continue
             detachs.append(False)
-
-        # Debug: detect accidental graph breaks/detaches, especially for single_blocks.
-        # Print on rank0 only (to avoid log spam across ranks) and without a hard limit.
-        try:
-            rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-            if rank == 0:
-                args_info = []
-                for i, a in enumerate(args):
-                    if isinstance(a, torch.Tensor):
-                        args_info.append(
-                            {
-                                "i": i,
-                                "shape": tuple(a.shape),
-                                "dtype": str(a.dtype),
-                                "device": str(a.device),
-                                "requires_grad": bool(a.requires_grad),
-                                "is_leaf": bool(a.is_leaf),
-                                "grad_fn": type(a.grad_fn).__name__ if a.grad_fn is not None else None,
-                                "will_detach": bool(detachs[i]),
-                                # "otherinfo": a,
-                            }
-                        )
-                    else:
-                        args_info.append({"i": i, "type": type(a).__name__, "will_detach": False})
-
-                print(
-                    "[hybrid-ac][dbg] inputs:",
-                    {
-                        "layer": int(getattr(self.hybrid_handler, "current_layer", -999)),
-                        "module": type(self._checkpoint_wrapped_module).__name__,
-                        "args": args_info,
-                    },
-                    flush=True,
-                )
-        except Exception:
-            pass
 
         internals = HybridOffloadHeadModule.apply(self.hybrid_handler, *args)
         new_inputs = []
@@ -594,9 +541,6 @@ class HybridCheckpointWrapper(ActivationWrapper):
         def make_hook(offload_handler, layer_id):
             def hook(grad):
                 if offload_handler.current_layer == layer_id + 1:
-                    # rank = int(torch.distributed.get_rank()) if torch.distributed.is_initialized() else 0
-                    # if rank == 0:
-                    #     print(f"[hook trigger] layer_id={layer_id}, current_layer={offload_handler.current_layer}")
                     offload_handler.layer_pre_backward_hook()
                 return grad
             return hook
@@ -661,11 +605,6 @@ _cpu_save_list = {
 def _apply_hybrid_sac_to_transformer_block(module: nn.Module, noop=False):
     # Guard against double-wrapping the same block, which would cause
     # HybridOffloadTailModule to run twice for one logical layer (e.g. 61 vs 60).
-    if isinstance(module, ActivationWrapper):
-        raise RuntimeError(
-            f"[hybrid-ac] refusing to wrap an already wrapped module: {type(module)}"
-        )
-
     def _get_custom_policy(meta):
         def _custom_policy(ctx, func, *args, **kwargs):
             mode = "recompute" if ctx.is_recompute else "forward"
