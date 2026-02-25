@@ -351,15 +351,15 @@ class _HybridCachedTorchDispatchMode(TorchDispatchMode):
                     "on any region computed under selective activation checkpoint."
                 )
             # pop in order
-            # out = tree_map(
-            #     lambda x: x.get_val(self.allow_cache_entry_mutation), storage.pop(0)
-            # )
-            cached_wrappered_object = storage.pop(0)
-            if type(cached_wrappered_object.val) != type(()):
-                out = cached_wrappered_object.val
-            else:
-                dev, t = cached_wrappered_object.val
-                out = t.to(dev)
+            out = tree_map(
+                lambda x: x.get_val(self.allow_cache_entry_mutation), storage.pop(0)
+            )
+            # cached_wrappered_object = storage.pop(0)
+            # if type(cached_wrappered_object.val) != type(()):
+            #     out = cached_wrappered_object.val
+            # else:
+            #     dev, t = cached_wrappered_object.val
+            #     out = t.to(dev)
         else:
             out = func(*args, **kwargs)
         return out
@@ -586,7 +586,7 @@ _save_list = {
     #torch.ops.aten.mm.default,
     torch.ops.aten.addmm.default,  # WanAttentionBlock use linear with bias
     #torch.ops.musa.flash_attn_varlen_forward.default,
-    #torch.ops.aten._scaled_dot_product_attention_flash_musa.default,
+    torch.ops.aten._scaled_dot_product_attention_flash_musa.default,
 }
 
 # selective activation offload operator list
@@ -596,9 +596,9 @@ _cpu_save_list = {
 
     # NOTE: SDPA output is non contiguous, and the contiguous kernel may have
     # contention with other compute kernels, so we use SAC for SDPA.
-    # torch.ops.aten._scaled_dot_product_attention_flash_musa.default,
+    torch.ops.aten._scaled_dot_product_attention_flash_musa.default,
 
-    #torch.ops.musa.flash_attn_varlen_forward.default,
+    # torch.ops.musa.flash_attn_varlen_forward.default,
 }
 
 
