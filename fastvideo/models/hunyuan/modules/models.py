@@ -353,7 +353,12 @@ class MMDoubleStreamBlock(nn.Module):
         img_attn, txt_attn = attn[:, :img.shape[1]], attn[:, img.shape[1]:]
 
         # Calculate the img blocks.
-        img = img + apply_gate(self.img_attn_proj(img_attn), gate=img_mod1_gate)
+        img: torch.Tensor = img + apply_gate(self.img_attn_proj(img_attn), gate=img_mod1_gate)
+        
+        # print(img.stride(), img.is_contiguous()) # (44236800, 1, 14400) False
+        # 此tensor在layernorm调用中的contiguous算子的性能可能较低
+        # 手动调用contiguous使得调用性能较高的算子
+        img = img.contiguous()
         img = img + apply_gate(
             self.img_mlp(modulate(self.img_norm2(img), shift=img_mod2_shift, scale=img_mod2_scale)),
             gate=img_mod2_gate,
