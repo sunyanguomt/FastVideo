@@ -548,8 +548,17 @@ class MMSingleStreamBlock(nn.Module):
 
         # attention computation end
 
-        # Compute activation in mlp stream, cat again and run second linear layer.
-        output = self.linear2(torch.cat((attn, self.mlp_act(mlp)), 2))
+        # Compute activation in mlp stream.
+        mlp_act = self.mlp_act(mlp)
+
+        # Avoid materializing torch.cat((attn, mlp_act), dim=2) by splitting linear2 weight.
+        # linear2.weight: [hidden_size, hidden_size + mlp_hidden_dim]
+        W = self.linear2.weight
+        b2 = self.linear2.bias
+        W_attn = W[:, : self.hidden_size]
+        W_mlp = W[:, self.hidden_size :]
+
+        output = torch.nn.functional.linear(attn, W_attn, b2) + torch.nn.functional.linear(mlp_act, W_mlp, None)
         return x + apply_gate(output, gate=mod_gate)
 
 
