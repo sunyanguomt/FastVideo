@@ -347,7 +347,7 @@ def parallel_attention(q, k, v, img_q_len, img_kv_len, text_mask, mask_strategy=
 
     if get_sequence_parallel_state():
         hidden_states = all_to_all_4D(hidden_states, scatter_dim=1, gather_dim=2)
-        encoder_hidden_states = all_gather(encoder_hidden_states, dim=2).contiguous()
+        encoder_hidden_states = all_gather(encoder_hidden_states.contiguous(), dim=2).contiguous()
 
     hidden_states = hidden_states.to(query.dtype)
     encoder_hidden_states = encoder_hidden_states.to(query.dtype)

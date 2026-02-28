@@ -323,6 +323,17 @@ def main(args):
             transformer_block = _apply_hybrid_sac_to_transformer_block(block)
             transformer.single_blocks[idx] = transformer_block
 
+        # debug: check whether params are actually trainable (rank0 only)
+        if rank == 0:
+            try:
+                p0 = next(transformer.double_blocks[0].parameters())
+                main_print(
+                    f"[hybrid-ac][dbg] double_blocks[0] first_param requires_grad={p0.requires_grad} "
+                    f"dtype={p0.dtype} device={p0.device}"
+                )
+            except StopIteration:
+                main_print("[hybrid-ac][dbg] double_blocks[0] has no parameters")
+
 
     # Set model as trainable.
     transformer.train()
