@@ -15,7 +15,7 @@ import torch.distributed as dist
 group = None
 try:
     from videogenkern import CeComm
-    USE_CE = False
+    USE_CE = True
 except:
     USE_CE = False
 
