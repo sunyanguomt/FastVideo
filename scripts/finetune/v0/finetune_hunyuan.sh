@@ -39,6 +39,7 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --validation_guidance_scale "1.0" \
     --use_fused_rmsnorm \
     --use_fused_rope \
-    --enable_hybrid_ac
+    --enable_hybrid_ac \
+    --fsdp_prefetch_layer 1
     #--gradient_checkpointing \
     #--selective_checkpointing 0.99 \

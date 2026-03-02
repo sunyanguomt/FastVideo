@@ -16,6 +16,7 @@ from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, convert_unet_state_dict_to_peft
 from peft import LoraConfig, set_peft_model_state_dict
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp._fully_shard._fully_shard import FSDPModule
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from tqdm.auto import tqdm
@@ -298,6 +299,34 @@ def main(args):
             **fsdp_kwargs,
         )
         main_print("--> model loaded")
+
+
+    if args.fsdp_prefetch_layer > 0:
+        def _set_fsdp_prefetch(blocks, *, n: int, direction: str):
+            assert n > 0
+            if direction not in {"forward", "backward"}:
+                raise ValueError(f"direction must be 'forward' or 'backward', got {direction!r}")
+
+            total = len(blocks)
+            for idx, block in enumerate(blocks):
+                block: FSDPModule = block
+                if direction == "forward":
+                    # Prefetch next n layers; skip tail that doesn't have enough next layers.
+                    if idx >= total - n:
+                        continue
+                    layers_to_prefetch = [blocks[idx + j] for j in range(1, n + 1)]
+                    block.set_modules_to_forward_prefetch(layers_to_prefetch)
+                else:
+                    # Prefetch previous n layers; skip head that doesn't have enough previous layers.
+                    if idx < n:
+                        continue
+                    layers_to_prefetch = [blocks[idx - j] for j in range(1, n + 1)]
+                    block.set_modules_to_backward_prefetch(layers_to_prefetch)
+        _set_fsdp_prefetch(transformer.double_blocks, n=args.fsdp_prefetch_layer, direction="forward")
+        _set_fsdp_prefetch(transformer.single_blocks, n=args.fsdp_prefetch_layer, direction="forward")
+        _set_fsdp_prefetch(transformer.double_blocks, n=args.fsdp_prefetch_layer, direction="backward")
+        _set_fsdp_prefetch(transformer.single_blocks, n=args.fsdp_prefetch_layer, direction="backward")
+
 
     if args.gradient_checkpointing:
         apply_fsdp_checkpointing(transformer, no_split_modules, args.selective_checkpointing)
@@ -769,6 +798,12 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="use torch fused rope implementation",
+    )
+    parser.add_argument(
+        "--fsdp_prefetch_layer",
+        type=int,
+        default=0,
+        help="fsdp prefetch argument in bwd and fwd stages"
     )
 
     args = parser.parse_args()
