@@ -2,6 +2,7 @@
 # isort: skip_file
 import torch_musa
 import argparse
+import functools
 import math
 import os
 import time
@@ -34,12 +35,14 @@ from fastvideo.utils.load import load_transformer
 from fastvideo.utils.logging_ import main_print
 from fastvideo.utils.parallel_states import (destroy_sequence_parallel_group, get_sequence_parallel_state,
                                              initialize_sequence_parallel_state)
+from fastvideo.utils.te_fp8 import get_fp8_recipe, is_te_fp8_enabled, te_fp8_autocast
 from fastvideo.utils.validation import log_validation
 from fastvideo.version import fsdp2_supported
 
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed._composable.fsdp import OffloadPolicy
+
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.31.0")
@@ -89,6 +92,76 @@ def get_sigmas(noise_scheduler, device, timesteps, n_dim=4, dtype=torch.float32)
         sigma = sigma.unsqueeze(-1)
     return sigma
 
+
+def _parse_layer_indices(spec, total_layers):
+    if spec is None:
+        return set()
+
+    spec = str(spec).strip()
+    if spec == "":
+        return set()
+
+    selected = set()
+    for token in spec.split(","):
+        token = token.strip()
+        if token == "":
+            continue
+        if "-" in token:
+            start_text, end_text = token.split("-", 1)
+            start = int(start_text.strip())
+            end = int(end_text.strip())
+            if start > end:
+                raise ValueError(f"Invalid layer range '{token}': start must be <= end")
+            for idx in range(start, end + 1):
+                if idx < 0 or idx >= total_layers:
+                    raise ValueError(f"Layer index out of range: {idx}, valid range is [0, {total_layers - 1}]")
+                selected.add(idx)
+        else:
+            idx = int(token)
+            if idx < 0 or idx >= total_layers:
+                raise ValueError(f"Layer index out of range: {idx}, valid range is [0, {total_layers - 1}]")
+            selected.add(idx)
+    return selected
+
+
+def _wrap_module_forward_with_te_fp8(module, fp8_recipe):
+    if getattr(module, "_fastvideo_te_fp8_wrapped", False):
+        return
+
+    original_forward = module.forward
+
+    @functools.wraps(original_forward)
+    def _forward_with_te_fp8(*args, **kwargs):
+        with te_fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+            return original_forward(*args, **kwargs)
+
+    module.forward = _forward_with_te_fp8
+    module._fastvideo_te_fp8_wrapped = True
+
+
+def _configure_te_fp8_layers(transformer, layer_spec, fp8_recipe):
+    block_groups = []
+    if hasattr(transformer, "double_blocks"):
+        block_groups.append(transformer.double_blocks)
+    if hasattr(transformer, "single_blocks"):
+        block_groups.append(transformer.single_blocks)
+    if len(block_groups) == 0:
+        raise ValueError("Layer-wise TE FP8 requires transformer.double_blocks and/or transformer.single_blocks")
+
+    all_blocks = []
+    for blocks in block_groups:
+        all_blocks.extend(list(blocks))
+
+    total_layers = len(all_blocks)
+    if total_layers == 0:
+        raise ValueError("Layer-wise TE FP8 requested but no transformer blocks were found")
+
+    selected_layers = _parse_layer_indices(layer_spec, total_layers)
+    for idx in selected_layers:
+        _wrap_module_forward_with_te_fp8(all_blocks[idx], fp8_recipe)
+
+    return selected_layers, total_layers
+
 def train_one_step(
     transformer,
     model_type,
@@ -105,9 +178,25 @@ def train_one_step(
     logit_mean,
     logit_std,
     mode_scale,
+    use_te_fp8=False,
+    te_fp8_format="hybrid",
+    te_fp8_amax_history_len=16,
+    te_fp8_amax_compute_algo="max",
+    te_fp8_scaling="block",
+    te_fp8_block_tile_size=128,
+    te_fp8_layers="",
 ):
     total_loss = 0.0
     optimizer.zero_grad()
+    te_fp8_enabled = is_te_fp8_enabled(model_type=model_type, explicit=use_te_fp8)
+    te_fp8_recipe = get_fp8_recipe(
+        fp8_format=te_fp8_format,
+        amax_history_len=te_fp8_amax_history_len,
+        amax_compute_algo=te_fp8_amax_compute_algo,
+        scaling=te_fp8_scaling,
+        block_tile_size=te_fp8_block_tile_size,
+    )
+    use_layerwise_te_fp8 = te_fp8_enabled and bool(str(te_fp8_layers).strip())
     for _ in range(gradient_accumulation_steps):
         (
             latents,
@@ -149,7 +238,8 @@ def train_one_step(
             }
             if 'hunyuan' in model_type:
                 input_kwargs["guidance"] = torch.tensor([1000.0], device=noisy_model_input.device, dtype=torch.bfloat16)
-            model_pred = transformer(**input_kwargs)[0]
+            with te_fp8_autocast(enabled=te_fp8_enabled and not use_layerwise_te_fp8, fp8_recipe=te_fp8_recipe):
+                model_pred = transformer(**input_kwargs)[0]
 
         if precondition_outputs:
             model_pred = noisy_model_input - model_pred * sigmas
@@ -157,6 +247,42 @@ def train_one_step(
             target = latents
         else:
             target = noise - latents
+            
+        # if dist.get_rank() == 0:
+        #     tp = target.detach().float()
+        #     dp = (model_pred.detach().float() - tp)
+
+        #     print(
+        #         "[target stats]",
+        #         "mean:", tp.mean().item(),
+        #         "std:", tp.std(unbiased=False).item(),
+        #         "min:", tp.min().item(),
+        #         "max:", tp.max().item(),
+        #         "maxabs:", tp.abs().max().item(),
+        #     )
+        #     print(
+        #         "[diff stats]",
+        #         "mean:", dp.mean().item(),
+        #         "std:", dp.std(unbiased=False).item(),
+        #         "min:", dp.min().item(),
+        #         "max:", dp.max().item(),
+        #         "maxabs:", dp.abs().max().item(),
+        #         "mse:", (dp.pow(2).mean().item()),
+        #     )
+        #     ts = timesteps.detach()
+        #     print(
+        #         "[timestep]",
+        #         "min:", ts.min().item(),
+        #         "max:", ts.max().item(),
+        #         "mean:", ts.float().mean().item(),
+        #     )
+        #     sg = sigmas.detach().float()
+        #     print(
+        #         "[sigma]",
+        #         "mean:", sg.mean().item(),
+        #         "min:", sg.min().item(),
+        #         "max:", sg.max().item(),
+        #     )
 
         loss = (torch.mean((model_pred.float() - target.float())**2) / gradient_accumulation_steps)
         loss.backward()
@@ -243,6 +369,21 @@ def main(args):
             if unexpected_keys:
                 main_print(f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
                            f" {unexpected_keys}. ")
+
+    te_fp8_enabled = is_te_fp8_enabled(model_type=args.model_type, explicit=args.use_te_fp8)
+    if te_fp8_enabled and args.te_fp8_layers.strip():
+        te_fp8_recipe = get_fp8_recipe(
+            fp8_format=args.te_fp8_format,
+            amax_history_len=args.te_fp8_amax_history_len,
+            amax_compute_algo=args.te_fp8_amax_compute_algo,
+            scaling=args.te_fp8_scaling,
+            block_tile_size=args.te_fp8_block_tile_size,
+        )
+        selected_layers, total_layers = _configure_te_fp8_layers(transformer, args.te_fp8_layers, te_fp8_recipe)
+        main_print(
+            f"--> Layer-wise TE FP8 enabled for {len(selected_layers)}/{total_layers} layers: "
+            f"{sorted(selected_layers)}"
+        )
 
     main_print(
         f"  Total training parameters = {sum(p.numel() for p in transformer.parameters() if p.requires_grad) / 1e6} M")
@@ -503,6 +644,13 @@ def main(args):
             args.logit_mean,
             args.logit_std,
             args.mode_scale,
+            args.use_te_fp8,
+            args.te_fp8_format,
+            args.te_fp8_amax_history_len,
+            args.te_fp8_amax_compute_algo,
+            args.te_fp8_scaling,
+            args.te_fp8_block_tile_size,
+            args.te_fp8_layers,
         )
 
         step_time = time.perf_counter() - start_time
@@ -786,6 +934,46 @@ if __name__ == "__main__":
         type=str,
         default="fp32",
         help="Weight type to use - fp32 or bf16.",
+    )
+    parser.add_argument("--use_te_fp8", action="store_true", help="Enable TransformerEngine FP8 autocast.")
+    parser.add_argument(
+        "--te_fp8_format",
+        type=str,
+        default="hybrid",
+        choices=["hybrid", "e4m3"],
+        help="TransformerEngine FP8 format.",
+    )
+    parser.add_argument(
+        "--te_fp8_amax_history_len",
+        type=int,
+        default=16,
+        help="TransformerEngine FP8 amax history length.",
+    )
+    parser.add_argument(
+        "--te_fp8_amax_compute_algo",
+        type=str,
+        default="max",
+        choices=["max", "most_recent"],
+        help="TransformerEngine FP8 amax compute algorithm.",
+    )
+    parser.add_argument(
+        "--te_fp8_scaling",
+        type=str,
+        default="block",
+        choices=["block", "tensor"],
+        help="TransformerEngine FP8 scaling mode.",
+    )
+    parser.add_argument(
+        "--te_fp8_block_tile_size",
+        type=int,
+        default=128,
+        help="TransformerEngine FP8 block scaling tile size.",
+    )
+    parser.add_argument(
+        "--te_fp8_layers",
+        type=str,
+        default="",
+        help="Comma-separated FP8 layer indices/ranges over [double_blocks + single_blocks], e.g. '1-58,63'.",
     )
     parser.add_argument(
         "--use_fused_rmsnorm",

@@ -1,6 +1,6 @@
 export WANDB_BASE_URL="https://api.wandb.ai"
 export WANDB_MODE=online
-#export MUDNN_LOG_LEVEL=INFO
+# export MUDNN_LOG_LEVEL=INFO
 export WANDB_MODE=disabled
 # export TORCH_PROFILING_TRACE=/data/yanguo.sun/hunyuan-video/FastVideo/profiling
 torchrun --nnodes 1 --nproc_per_node 8 \
@@ -40,6 +40,14 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --use_fused_rmsnorm \
     --use_fused_rope \
     --enable_hybrid_ac \
-    --fsdp_prefetch_layer 1
-    #--gradient_checkpointing \
-    #--selective_checkpointing 0.99 \
+    # --te_fp8_format "hybrid" \
+    # --te_fp8_scaling "tensor" \
+    # --te_fp8_amax_history_len 1 \
+    # --te_fp8_amax_compute_algo "most_recent" \
+    # --use_te_fp8 \
+    # --te_fp8_layers "1-2"
+    # --te_fp8_block_tile_size 128 \
+
+    # --fsdp_prefetch_layer 1         # 收益低 容易hang
+    #--gradient_checkpointing \       # 废弃
+    #--selective_checkpointing 0.99 \ # 废弃

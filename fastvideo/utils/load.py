@@ -259,7 +259,7 @@ def load_hunyuan_state_dict(model, dit_model_name_or_path):
         else:
             raise KeyError(f"Missing key: `{load_key}` in the checkpoint: {model_path}. The keys in the checkpoint "
                            f"are: {list(state_dict.keys())}.")
-    model.load_state_dict(state_dict, strict=True)
+    model.load_state_dict(state_dict, strict=False) #hack(SHIN) te debug
     return model
 
 

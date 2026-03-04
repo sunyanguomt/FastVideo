@@ -22,6 +22,8 @@ from .token_refiner import SingleTokenRefiner
 import torch
 from einops import rearrange
 
+import transformer_engine as te
+
 try:
     from st_attn import sliding_tile_attention
 except ImportError:
@@ -31,6 +33,26 @@ except ImportError:
 from fastvideo.models.flash_attn_no_pad import flash_attn_no_pad, flash_attn_no_pad_separate_qkv
 from fastvideo.utils.communications import all_gather, all_to_all_4D
 from fastvideo.utils.parallel_states import get_sequence_parallel_state, mccl_info
+
+
+def _is_global_rank0() -> bool:
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return True
+    return torch.distributed.get_rank() == 0
+
+
+def _log_fp8_input_amax(tag: str, x: torch.Tensor) -> None:
+    if not _is_global_rank0():
+        return
+    # with torch.no_grad():
+    #     x_detached = x.detach()
+    #     amax = x_detached.abs().amax().float().item()
+    #     has_nan = bool(torch.isnan(x_detached).any().item())
+    #     has_inf = bool(torch.isinf(x_detached).any().item())
+    #     print(
+    #         f"[fp8-input-amax] {tag}: amax={amax:.6e}, "
+    #         f"nan={has_nan}, inf={has_inf}, dtype={x.dtype}, shape={tuple(x.shape)}"
+    #     )
 
 
 def _prehook_split_img_attn_qkv(module, state_dict, prefix, local_metadata,
@@ -142,6 +164,7 @@ class MMDoubleStreamBlock(nn.Module):
         use_fused_rope : bool = False,
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
+        te_factory_kwargs = {"device": device, "params_dtype": dtype}
         norm_layer_factory_kwargs = {"device": device, "dtype": dtype}
         if qk_norm_type == "rms" and use_fused_rmsnorm:
             norm_layer_factory_kwargs['use_fused_rmsnorm'] = True
@@ -161,9 +184,12 @@ class MMDoubleStreamBlock(nn.Module):
         self.img_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
         # self.img_attn_qkv = nn.Linear(hidden_size, hidden_size * 3, bias=qkv_bias, **factory_kwargs)
-        self.img_attn_q = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
-        self.img_attn_k = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
-        self.img_attn_v = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        # self.img_attn_q = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        # self.img_attn_k = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        # self.img_attn_v = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        self.img_attn_q = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
+        self.img_attn_k = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
+        self.img_attn_v = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
         self._register_load_state_dict_pre_hook(_prehook_split_img_attn_qkv, with_module=True)
         
         qk_norm_layer = get_norm_layer(qk_norm_type)
@@ -243,6 +269,7 @@ class MMDoubleStreamBlock(nn.Module):
         # Prepare image for attention.
         img_modulated = self.img_norm1(img)
         img_modulated = modulate(img_modulated, shift=img_mod1_shift, scale=img_mod1_scale)
+        _log_fp8_input_amax(f"{self.__class__.__name__}:{id(self)}:img_attn_qkv_input", img_modulated)
         
         # Prepare txt for attention.
         txt_modulated = self.txt_norm1(txt)
@@ -255,7 +282,7 @@ class MMDoubleStreamBlock(nn.Module):
 
         # ===== Overlap pipeline: compute Q, start async comm, then compute K, etc. =====
         # Compute img_q
-        img_q = self.img_attn_q(img_modulated)
+        img_q = self.img_attn_q(img_modulated).to(torch.bfloat16)
         img_q = rearrange(img_q, "B L (H D) -> B L H D", H=self.heads_num)
         qkv_type = img_q.dtype
         img_q = self.img_attn_q_norm(img_q).to(qkv_type)
@@ -270,7 +297,7 @@ class MMDoubleStreamBlock(nn.Module):
             query_raw = specific_all_to_all_4D(query, scatter_idx=2, gather_idx=1, alloc_id=0, async_op=True)
         
         # Compute img_k while Q is being communicated
-        img_k = self.img_attn_k(img_modulated)
+        img_k = self.img_attn_k(img_modulated).to(torch.bfloat16)
         img_k = rearrange(img_k, "B L (H D) -> B L H D", H=self.heads_num)
         img_k = self.img_attn_k_norm(img_k).to(qkv_type)
         
@@ -284,7 +311,7 @@ class MMDoubleStreamBlock(nn.Module):
             key_raw = specific_all_to_all_4D(key, scatter_idx=2, gather_idx=1, alloc_id=1, async_op=True)
         
         # Compute img_v while K is being communicated
-        img_v = self.img_attn_v(img_modulated)
+        img_v = self.img_attn_v(img_modulated).to(torch.bfloat16)
         img_v = rearrange(img_v, "B L (H D) -> B L H D", H=self.heads_num)
         value, encoder_value = img_v, txt_v
 
@@ -396,6 +423,7 @@ class MMSingleStreamBlock(nn.Module):
         use_fused_rope : bool = False,
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
+        te_factory_kwargs = {"device": device, "params_dtype": dtype}
         norm_layer_factory_kwargs = {"device": device, "dtype": dtype}
         if qk_norm_type == "rms" and use_fused_rmsnorm:
             norm_layer_factory_kwargs['use_fused_rmsnorm'] = True
@@ -411,9 +439,12 @@ class MMSingleStreamBlock(nn.Module):
 
         # qkv and mlp_in
         # self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_hidden_dim, **factory_kwargs)
-        self.linear_q = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
-        self.linear_k = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
-        self.linear_v = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        # self.linear_q = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        # self.linear_k = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        # self.linear_v = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        self.linear_q = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
+        self.linear_k = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
+        self.linear_v = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
         self.linear_mlp = nn.Linear(hidden_size, mlp_hidden_dim, **factory_kwargs)
         self._register_load_state_dict_pre_hook(_prehook_split_linear1, with_module=True)
         # proj and mlp_out
@@ -454,8 +485,9 @@ class MMSingleStreamBlock(nn.Module):
     ) -> torch.Tensor:
         mod_shift, mod_scale, mod_gate = self.modulation(vec).chunk(3, dim=-1)
         x_mod = modulate(self.pre_norm(x), shift=mod_shift, scale=mod_scale)
+        _log_fp8_input_amax(f"{self.__class__.__name__}:{id(self)}:linear_qkv_input", x_mod)
         
-        q: torch.Tensor = self.linear_q(x_mod)
+        q: torch.Tensor = self.linear_q(x_mod).to(torch.bfloat16)
         q = rearrange(q, "B L (H D) -> B L H D", H=self.heads_num)
         qkv_type = q.dtype
         q = self.q_norm(q).to(qkv_type)
@@ -469,7 +501,7 @@ class MMSingleStreamBlock(nn.Module):
             query_raw = specific_all_to_all_4D(query, scatter_idx=2, gather_idx=1, alloc_id=0, async_op=True)
         
         
-        k: torch.Tensor = self.linear_k(x_mod)
+        k: torch.Tensor = self.linear_k(x_mod).to(torch.bfloat16)
         k = rearrange(k, "B L (H D) -> B L H D", H=self.heads_num)
         k = self.k_norm(k).to(qkv_type)
         img_k, txt_k = k[:, :-txt_len, :, :], k[:, -txt_len:, :, :]
@@ -482,7 +514,7 @@ class MMSingleStreamBlock(nn.Module):
             key_raw = specific_all_to_all_4D(key, scatter_idx=2, gather_idx=1, alloc_id=1, async_op=True)
             
         
-        v: torch.Tensor = self.linear_v(x_mod)
+        v: torch.Tensor = self.linear_v(x_mod).to(torch.bfloat16)
         mlp = self.linear_mlp(x_mod)
         v = rearrange(v, "B L (H D) -> B L H D", H=self.heads_num)
         img_v, txt_v = v[:, :-txt_len, :, :], v[:, -txt_len:, :, :]
