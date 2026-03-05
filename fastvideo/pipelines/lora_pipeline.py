@@ -88,7 +88,7 @@ class LoRAPipeline(ComposedPipelineBase):
             return
 
         self.modules["transformer"].requires_grad_(False)
-        device_mesh = init_device_mesh("cuda", (dist.get_world_size(), 1),
+        device_mesh = init_device_mesh("musa", (dist.get_world_size(), 1),
                                        mesh_dim_names=["fake", "replicate"])
         for name, layer in self.lora_layers.items():
             # Enable grads for lora weights only

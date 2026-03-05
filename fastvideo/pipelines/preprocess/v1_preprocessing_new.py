@@ -4,6 +4,8 @@ from fastvideo.fastvideo_args import FastVideoArgs
 from fastvideo.logger import init_logger
 from fastvideo.utils import FlexibleArgumentParser
 from fastvideo.workflow.workflow_base import WorkflowBase
+import torch
+import torch_musa
 
 logger = init_logger(__name__)
 

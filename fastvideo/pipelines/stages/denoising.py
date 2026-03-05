@@ -247,7 +247,7 @@ class DenoisingStage(PipelineStage):
                     if (fastvideo_args.dit_cpu_offload
                             and self.transformer_2 is not None and next(
                                 self.transformer_2.parameters()).device.type
-                            == 'cuda'):
+                            == 'musa'):
                         self.transformer_2.to('cpu')
                     current_model = self.transformer
                     current_guidance_scale = batch.guidance_scale
@@ -255,7 +255,7 @@ class DenoisingStage(PipelineStage):
                     # low-noise stage in wan2.2
                     if fastvideo_args.dit_cpu_offload and next(
                             self.transformer.parameters(
-                            )).device.type == 'cuda':
+                            )).device.type == 'musa':
                         self.transformer.to('cpu')
                     current_model = self.transformer_2
                     current_guidance_scale = batch.guidance_scale_2
@@ -296,7 +296,7 @@ class DenoisingStage(PipelineStage):
                     is not None else None)
 
                 # Predict noise residual
-                with torch.autocast(device_type="cuda",
+                with torch.autocast(device_type="musa",
                                     dtype=target_dtype,
                                     enabled=autocast_enabled):
                     if (st_attn_available
@@ -791,7 +791,7 @@ class DmdDenoisingStage(DenoisingStage):
                     is not None else None)
 
                 # Predict noise residual
-                with torch.autocast(device_type="cuda",
+                with torch.autocast(device_type="musa",
                                     dtype=target_dtype,
                                     enabled=autocast_enabled):
                     if (vsa_available and self.attn_backend

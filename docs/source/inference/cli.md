@@ -147,5 +147,5 @@ fastvideo generate --config config.json --prompt "A capybara lounging in a hammo
 
 ## Troubleshooting
 
-- If you encounter CUDA out-of-memory errors, try reducing the video dimensions or number of frames, or the number of inference steps.
+- If you encounter MUSA out-of-memory errors, try reducing the video dimensions or number of frames, or the number of inference steps.
 - For reproducible results, set the same seed value between runs.

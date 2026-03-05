@@ -2,7 +2,7 @@
 The `VideoGenerator` class provides the primary Python interface for doing offline video generation, which is interacting with a diffusion pipeline without using a separate inference api server.
 
 ## Requirements
-- At least a single NVIDIA GPU with CUDA 12.4.
+- At least a single NVIDIA GPU with MUSA 12.4.
 - Python 3.10-3.12
 
 ## Installation

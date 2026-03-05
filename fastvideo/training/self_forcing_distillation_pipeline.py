@@ -643,7 +643,7 @@ class SelfForcingDistillationPipeline(DistillationPipeline):
                             latents += self.vae.shift_factor
 
                     try:
-                        with torch.autocast("cuda", dtype=torch.bfloat16):
+                        with torch.autocast("musa", dtype=torch.bfloat16):
                             video = self.vae.decode(latents)
                         video = (video / 2 + 0.5).clamp(0, 1)
                         video = video.cpu().float()
@@ -683,7 +683,7 @@ class SelfForcingDistillationPipeline(DistillationPipeline):
                             latents += self.vae.shift_factor
 
                     try:
-                        with torch.autocast("cuda", dtype=torch.bfloat16):
+                        with torch.autocast("musa", dtype=torch.bfloat16):
                             video = self.vae.decode(latents)
                         video = (video / 2 + 0.5).clamp(0, 1)
                         video = video.cpu().float()
@@ -729,7 +729,7 @@ class SelfForcingDistillationPipeline(DistillationPipeline):
 
         self.noise_random_generator = torch.Generator(device="cpu").manual_seed(
             self.seed)
-        self.noise_gen_cuda = torch.Generator(device="cuda").manual_seed(
+        self.noise_gen_musa = torch.Generator(device="musa").manual_seed(
             self.seed)
         self.validation_random_generator = torch.Generator(
             device="cpu").manual_seed(self.seed)
@@ -784,7 +784,7 @@ class SelfForcingDistillationPipeline(DistillationPipeline):
                 self.generator_ema = EMA_FSDP(self.transformer, decay=self.training_args.ema_decay)
                 logger.info(f"Created generator EMA at step {step} with decay={self.training_args.ema_decay}")
 
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with torch.autocast("musa", dtype=torch.bfloat16):
                 training_batch = self.train_one_step(training_batch)
 
             total_loss = training_batch.total_loss

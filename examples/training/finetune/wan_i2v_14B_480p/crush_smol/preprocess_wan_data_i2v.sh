@@ -1,13 +1,14 @@
 #!/bin/bash
 
 GPU_NUM=1 # 2,4,8
-MODEL_PATH="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
+MODEL_PATH="/data/caizhi/wan2.1_i2v_diffusers"
 MODEL_TYPE="wan"
-DATA_MERGE_PATH="data/crush-smol/merge.txt"
-OUTPUT_DIR="data/crush-smol_processed_i2v/"
+DATA_MERGE_PATH="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/crush-smol/merge.txt"
+DATASET_PATH="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/crush-smol/"
+OUTPUT_DIR="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/crush-smol_processed_i2v_not_new"
 
-torchrun --nproc_per_node=$GPU_NUM \
-    fastvideo/pipelines/preprocess/v1_preprocess.py \
+torchrun --master_port 29502 --nproc_per_node=$GPU_NUM \
+    /data/caizhi/FastVideo_wan2.2/FastVideo/fastvideo/pipelines/preprocess/v1_preprocess.py \
     --model_path $MODEL_PATH \
     --data_merge_path $DATA_MERGE_PATH \
     --preprocess_video_batch_size 8 \

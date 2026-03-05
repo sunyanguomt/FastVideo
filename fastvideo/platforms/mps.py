@@ -72,5 +72,5 @@ class MpsPlatform(Platform):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            # MPS doesn't have manual_seed_all like CUDA
+            # MPS doesn't have manual_seed_all like MUSA
             # The manual_seed above should be sufficient

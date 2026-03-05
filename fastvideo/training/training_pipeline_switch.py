@@ -269,7 +269,7 @@ class TrainingPipeline(LoRAPipeline, ABC):
         latents = training_batch.latents
         batch_size = latents.shape[0]
         noise = torch.randn(latents.shape,
-                            generator=self.noise_gen_cuda,
+                            generator=self.noise_gen_musa,
                             device=latents.device,
                             dtype=latents.dtype)
         timesteps = self._sample_timesteps(batch_size, latents.device)
@@ -515,7 +515,7 @@ class TrainingPipeline(LoRAPipeline, ABC):
         # Set random seeds for deterministic training
         self.noise_random_generator = torch.Generator(device="cpu").manual_seed(
             self.seed)
-        self.noise_gen_cuda = torch.Generator(device="cuda").manual_seed(
+        self.noise_gen_musa = torch.Generator(device="musa").manual_seed(
             self.seed)
         self.validation_random_generator = torch.Generator(
             device="cpu").manual_seed(self.seed)
@@ -595,7 +595,7 @@ class TrainingPipeline(LoRAPipeline, ABC):
                 self.sp_group.barrier()
             if self.training_args.log_validation and step % self.training_args.validation_steps == 0:
                 self._log_validation(self.transformer, self.training_args, step)
-                gpu_memory_usage = torch.cuda.memory_allocated() / 1024**2
+                gpu_memory_usage = torch.musa.memory_allocated() / 1024**2
                 trainable_params = round(
                     _get_trainable_params(self.transformer) / 1e9, 3)
                 logger.info(
@@ -638,7 +638,7 @@ class TrainingPipeline(LoRAPipeline, ABC):
         logger.info("  Master weight dtype: %s",
                     self.transformer.parameters().__next__().dtype)
 
-        gpu_memory_usage = torch.cuda.memory_allocated() / 1024**2
+        gpu_memory_usage = torch.musa.memory_allocated() / 1024**2
         logger.info("GPU memory usage before train_one_step: %s MB",
                     gpu_memory_usage)
         logger.info("VSA validation sparsity: %s",

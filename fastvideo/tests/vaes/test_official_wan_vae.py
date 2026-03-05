@@ -31,7 +31,7 @@ VAE_PATH = os.path.join(MODEL_PATH, "vae")
 @pytest.mark.skip(reason="disable test")
 @pytest.mark.usefixtures("distributed_setup")
 def test_official_wan_vae():
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("musa:0" if torch.musa.is_available() else "cpu")
     precision = torch.bfloat16
     precision_str = "bf16"
     args = FastVideoArgs(model_path=VAE_PATH, pipeline_config=PipelineConfig(vae_config=WanVAEConfig(), vae_precision=precision_str))

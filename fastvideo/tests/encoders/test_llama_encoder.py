@@ -42,7 +42,7 @@ def test_llama_encoder():
     args = FastVideoArgs(model_path="meta-llama/Llama-2-7b-hf",
                          pipeline_config=PipelineConfig(text_encoder_configs=(LlamaConfig(),), text_encoder_precisions=("fp16",)))
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("musa:0" if torch.musa.is_available() else "cpu")
 
     # Initialize the two model implementations
     logger.info("Loading models from %s", args.model_path)
@@ -52,7 +52,7 @@ def test_llama_encoder():
     # Load HuggingFace implementation
     model1 = LlamaModel.from_pretrained(TEXT_ENCODER_PATH).to(torch.float16).to(device).eval()
     loader = TextEncoderLoader()
-    device = torch.device("cuda:0")
+    device = torch.device("musa:0")
     model2 = loader.load(TEXT_ENCODER_PATH, args)
 
     # Convert to float16 and move to device
@@ -92,7 +92,7 @@ def test_llama_encoder():
         param2 = param2.to_local().to(device) if isinstance(param2, DTensor) else param2.to(device)
         assert_close(param1, param2, atol=1e-4, rtol=1e-4)
     gc.collect()
-    torch.cuda.empty_cache()
+    torch.musa.empty_cache()
 
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH)
 

@@ -26,7 +26,7 @@ export MASTER_PORT=29500
 export NODE_RANK=$SLURM_PROCID
 nodes=( $(scontrol show hostnames $SLURM_JOB_NODELIST) )
 export MASTER_ADDR=${nodes[0]}
-export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
+export MUSA_VISIBLE_DEVICES=$SLURM_LOCALID
 export TOKENIZERS_PARALLELISM=false
 export WANDB_BASE_URL="https://api.wandb.ai"
 export WANDB_MODE=online
@@ -41,7 +41,7 @@ NUM_GPUS=8
 MODEL_PATH="Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 DATA_DIR=your_data_dir
 VALIDATION_DATASET_FILE=your_validation_dataset_file
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
 
 # Training arguments

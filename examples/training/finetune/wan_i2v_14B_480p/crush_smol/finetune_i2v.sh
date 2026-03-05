@@ -5,12 +5,20 @@ export WANDB_MODE=online
 export TOKENIZERS_PARALLELISM=false
 # export FASTVIDEO_ATTENTION_BACKEND=TORCH_SDPA
 
-MODEL_PATH="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
-DATA_DIR="data/crush-smol_processed_i2v/combined_parquet_dataset/"
+#MODEL_PATH="/data/caizhi/wan2.1_i2v_diffusers"
+MODEL_PATH="/data/caizhi/wan2.2_i2v_diffusers"
+#DATA_DIR="data/crush-smol_processed_i2v/combined_parquet_dataset/"
+#DATA_DIR="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/crush-smol_processed_i2v/training_dataset/worker_0/"
+#DATA_DIR="/data/caizhi/combined_parquet_dataset/"
+DATA_DIR="/data/caizhi/OpenVidHD_processed_i2v_121_frames/combined_parquet_dataset/"
 VALIDATION_DATASET_FILE="$(dirname "$0")/validation.json"
 NUM_GPUS=8
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+WORK_DIR=$(pwd)
+LOG_DIR=${WORK_DIR}/logs/train_${TIMESTAMP}
+mkdir -p "${LOG_DIR}"
 
 # Training arguments
 training_args=(
@@ -23,7 +31,7 @@ training_args=(
   --num_latent_t 8
   --num_height 480
   --num_width 832
-  --num_frames 77
+  --num_frames 121
   --enable_gradient_checkpointing_type "full"
 )
 
@@ -80,14 +88,14 @@ miscellaneous_args=(
 )
 
 # If you do not have 32 GPUs and to fit in memory, you can: 1. increase sp_size. 2. reduce num_latent_t
-torchrun \
+torchrun --master_port 29501 \
   --nnodes 1 \
   --nproc_per_node $NUM_GPUS \
-    fastvideo/training/wan_i2v_training_pipeline.py \
+    /data/caizhi/FastVideo_wan2.2/FastVideo/fastvideo/training/wan_i2v_training_pipeline.py \
     "${parallel_args[@]}" \
     "${model_args[@]}" \
     "${dataset_args[@]}" \
     "${training_args[@]}" \
     "${optimizer_args[@]}" \
     "${validation_args[@]}" \
-    "${miscellaneous_args[@]}"
+    "${miscellaneous_args[@]}" 2>&1 | tee "${LOG_DIR}/train_${TIMESTAMP}.log"

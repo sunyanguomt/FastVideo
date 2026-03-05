@@ -12,7 +12,7 @@ def main():
         dit_cpu_offload=False,
         vae_cpu_offload=False,
         text_encoder_cpu_offload=True,
-        pin_cpu_memory=True, # set to false if low CPU RAM or hit obscure "CUDA error: Invalid argument"
+        pin_cpu_memory=True, # set to false if low CPU RAM or hit obscure "MUSA error: Invalid argument"
     )
     load_time = time.perf_counter() - start_time
     print(f"Model loading time: {load_time:.2f} seconds")

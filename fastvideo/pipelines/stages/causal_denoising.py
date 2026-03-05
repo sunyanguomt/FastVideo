@@ -140,7 +140,7 @@ class CausalDMDDenosingStage(DenoisingStage):
                 # warm-up with the very first frame independently
                 image_first_btchw = image_latent[:, :, :1, :, :].to(
                     target_dtype).permute(0, 2, 1, 3, 4)
-                with torch.autocast(device_type="cuda",
+                with torch.autocast(device_type="musa",
                                     dtype=target_dtype,
                                     enabled=autocast_enabled):
                     _ = self.transformer(
@@ -166,7 +166,7 @@ class CausalDMDDenosingStage(DenoisingStage):
                                          current_start_frame +
                                          block, :, :].to(target_dtype).permute(
                                              0, 2, 1, 3, 4)
-                with torch.autocast(device_type="cuda",
+                with torch.autocast(device_type="musa",
                                     dtype=target_dtype,
                                     enabled=autocast_enabled):
                     _ = self.transformer(
@@ -255,7 +255,7 @@ class CausalDMDDenosingStage(DenoisingStage):
                     else:
                         attn_metadata = None
 
-                    with torch.autocast(device_type="cuda",
+                    with torch.autocast(device_type="musa",
                                         dtype=target_dtype,
                                         enabled=autocast_enabled), \
                         set_forward_context(current_timestep=i,
@@ -320,7 +320,7 @@ class CausalDMDDenosingStage(DenoisingStage):
                                        device=latents.device,
                                        dtype=torch.long) * int(context_noise)
                 context_bcthw = current_latents.to(target_dtype)
-                with torch.autocast(device_type="cuda",
+                with torch.autocast(device_type="musa",
                                     dtype=target_dtype,
                                     enabled=autocast_enabled), \
                     set_forward_context(current_timestep=0,

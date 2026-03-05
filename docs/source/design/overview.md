@@ -371,7 +371,7 @@ FastVideo's platform abstraction layer enables:
 
 The primary components include:
 - **Platform Interface**: Defines the common API for all platform implementations
-- **CUDA Platform**: Optimized implementation for NVIDIA GPUs
+- **MUSA Platform**: Optimized implementation for NVIDIA GPUs
 - **Backend Enum**: Used throughout the codebase for feature selection
 
 Usage example:

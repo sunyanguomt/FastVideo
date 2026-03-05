@@ -3,7 +3,7 @@
 #include "kittens.cuh"
 #include <cooperative_groups.h>
 #include <iostream>
-#include <c10/cuda/CUDAGuard.h>
+#include <c10/musa/MUSAGuard.h>
 
 
 using namespace kittens;
@@ -662,7 +662,7 @@ void bwd_attend_ker(const __grid_constant__ bwd_globals<D> g) {
 }
 
 #include "pyutils/torch_helpers.cuh"
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/musa/MUSAContext.h>
 #include <iostream>
 
 std::vector<torch::Tensor> 
@@ -743,9 +743,9 @@ block_sparse_attention_forward(
     float* l_ptr = reinterpret_cast<float*>(l_vec.data_ptr<float>());
     float* d_l   = reinterpret_cast<float*>(l_ptr);
 
-    //cudadevicesynchronize();
-    const c10::cuda::OptionalCUDAGuard device_guard(q.device());    
-    const cudaStream_t stream = at::cuda::getCurrentCUDAStream().stream(); 
+    //musadevicesynchronize();
+    const c10::musa::OptionalMUSAGuard device_guard(q.device());    
+    const musaStream_t stream = at::musa::getCurrentMUSAStream().stream(); 
 
     if (head_dim == 64) {
         using q_tile    =         st_bf<fwd_attend_ker_tile_dims<64>::qo_height, fwd_attend_ker_tile_dims<64>::tile_width>;
@@ -786,16 +786,16 @@ block_sparse_attention_forward(
 
         dim3 grid(seq_len/(64), qo_heads, batch);
 
-        cudaFuncSetAttribute(
+        musaFuncSetAttribute(
             fwd_attend_ker<64>,
-            cudaFuncAttributeMaxDynamicSharedMemorySize,
+            musaFuncAttributeMaxDynamicSharedMemorySize,
             mem_size
         );
 
         fwd_attend_ker<64><<<grid, (128), mem_size, stream>>>(g);
 
-        CHECK_CUDA_ERROR(cudaGetLastError());
-        // cudaStreamSynchronize(stream);
+        CHECK_MUSA_ERROR(musaGetLastError());
+        // musaStreamSynchronize(stream);
     }
 
     if (head_dim == 128) {
@@ -837,20 +837,20 @@ block_sparse_attention_forward(
 
         dim3 grid(seq_len/(64), qo_heads, batch);
 
-        cudaFuncSetAttribute(
+        musaFuncSetAttribute(
             fwd_attend_ker<128>,
-            cudaFuncAttributeMaxDynamicSharedMemorySize,
+            musaFuncAttributeMaxDynamicSharedMemorySize,
             mem_size
         );
 
         fwd_attend_ker<128><<<grid, (128), mem_size, stream>>>(g);
 
-        CHECK_CUDA_ERROR(cudaGetLastError());
-        // cudaStreamSynchronize(stream);
+        CHECK_MUSA_ERROR(musaGetLastError());
+        // musaStreamSynchronize(stream);
     }
 
     return {o, l_vec};
-    //cudadevicesynchronize();
+    //musadevicesynchronize();
 }
 
 std::vector<torch::Tensor> 
@@ -964,11 +964,11 @@ block_sparse_attention_backward(torch::Tensor q,
     constexpr int mem_size = kittens::MAX_SHARED_MEMORY; 
     int threads  = PREP_NUM_WARPS * kittens::WARP_THREADS;
 
-    //cudadevicesynchronize();
-    const c10::cuda::OptionalCUDAGuard device_guard(q.device());    
-    const cudaStream_t stream = at::cuda::getCurrentCUDAStream().stream(); 
+    //musadevicesynchronize();
+    const c10::musa::OptionalMUSAGuard device_guard(q.device());    
+    const musaStream_t stream = at::musa::getCurrentMUSAStream().stream(); 
 
-    //  cudaStreamSynchronize(stream);
+    //  musaStreamSynchronize(stream);
 
     // TORCH_CHECK(seq_len % (4*kittens::TILE_DIM*4) == 0, "sequence length must be divisible by 256");
     dim3 grid_bwd(seq_len/(PREP_NUM_WARPS*kittens::TILE_ROW_DIM<bf16>*4), qo_heads, batch);
@@ -990,9 +990,9 @@ block_sparse_attention_backward(torch::Tensor q,
 
         bwd_prep_globals bwd_g{prep_og_arg, prep_o_arg, prep_d_arg};
 
-        cudaFuncSetAttribute(
+        musaFuncSetAttribute(
             bwd_attend_prep_ker<64>,
-            cudaFuncAttributeMaxDynamicSharedMemorySize,
+            musaFuncAttributeMaxDynamicSharedMemorySize,
             mem_size
         );
 
@@ -1052,26 +1052,26 @@ block_sparse_attention_backward(torch::Tensor q,
         dim3 grid_bwd_2(seq_len/64, qo_heads, batch);
         threads = 128;
 
-        //cudadevicesynchronize();
+        //musadevicesynchronize();
 
         {
-            cudaFuncSetAttribute(
+            musaFuncSetAttribute(
                 bwd_attend_ker<64>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                musaFuncAttributeMaxDynamicSharedMemorySize,
                 72000
             );
-            // cudaFuncSetAttribute(
+            // musaFuncSetAttribute(
             //     bwd_attend_ker<64>,
-            //     cudaFuncAttributePreferredSharedMemoryCarveout,
+            //     musaFuncAttributePreferredSharedMemoryCarveout,
             //     85
             // );
             
             bwd_attend_ker<64><<<grid_bwd_2, threads, 72000, stream>>>(bwd_global); 
         }
 
-        // CHECK_CUDA_ERROR(cudaGetLastError());
-        // cudaStreamSynchronize(stream);
-        //cudadevicesynchronize();
+        // CHECK_MUSA_ERROR(musaGetLastError());
+        // musaStreamSynchronize(stream);
+        //musadevicesynchronize();
         // const auto kernel_end = std::chrono::high_resolution_clock::now();
         // std::cout << "Kernel Time: " << std::chrono::duration_cast<std::chrono::microseconds>(kernel_end - start).count() << "us" << std::endl;
         // std::cout << "---" << std::endl;
@@ -1094,9 +1094,9 @@ block_sparse_attention_backward(torch::Tensor q,
 
         bwd_prep_globals bwd_g{prep_og_arg, prep_o_arg, prep_d_arg};
 
-        cudaFuncSetAttribute(
+        musaFuncSetAttribute(
             bwd_attend_prep_ker<128>,
-            cudaFuncAttributeMaxDynamicSharedMemorySize,
+            musaFuncAttributeMaxDynamicSharedMemorySize,
             mem_size
         );
 
@@ -1156,22 +1156,22 @@ block_sparse_attention_backward(torch::Tensor q,
         dim3 grid_bwd_2(seq_len/64, qo_heads, batch);
         threads = 128;
 
-        //cudadevicesynchronize();
+        //musadevicesynchronize();
 
         {
-            cudaFuncSetAttribute(
+            musaFuncSetAttribute(
                 bwd_attend_ker<128>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                musaFuncAttributeMaxDynamicSharedMemorySize,
                 113000
             );
             
             bwd_attend_ker<128><<<grid_bwd_2, threads, 113000, stream>>>(bwd_global); 
         }
 
-        // cudaStreamSynchronize(stream);
-        //cudadevicesynchronize();
+        // musaStreamSynchronize(stream);
+        //musadevicesynchronize();
     }
 
     return {qg, kg, vg};
-    //cudadevicesynchronize();
+    //musadevicesynchronize();
 }

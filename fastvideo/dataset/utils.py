@@ -154,8 +154,13 @@ def collate_rows_from_parquet_schema(rows,
                     ) if rng else random.random()) < cfg_rate:
                         data = np.zeros((512, 4096), dtype=np.float32)
                     else:
-                        data = np.frombuffer(
+                        #if 480 in shape and 832 in shape:
+                        #    data = np.frombuffer( 
+                        #        bytes_data, dtype=np.uint8).reshape(shape).copy()
+                        #else:
+                        data = np.frombuffer( 
                             bytes_data, dtype=np.float32).reshape(shape).copy()
+                    #        bytes_data, dtype=np.float32).reshape(shape).copy()
                     tensor = torch.from_numpy(data)
                     # if len(data.shape) == 3:
                     #     B, L, D = tensor.shape

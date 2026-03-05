@@ -13,7 +13,7 @@ from torch.nn.attention.flex_attention import BlockMask
 # see https://github.com/pytorch/pytorch/issues/133254
 # change to default for other models
 flex_attention = torch.compile(
-    flex_attention, dynamic=False, mode="max-autotune-no-cudagraphs")
+    flex_attention, dynamic=False, mode="max-autotune-no-musagraphs")
 import torch.distributed as dist
 
 import fastvideo.envs as envs

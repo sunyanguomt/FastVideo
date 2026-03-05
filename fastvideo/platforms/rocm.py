@@ -2,7 +2,7 @@
 # Adapted from rocm/vllm: https://github.com/ROCm/vllm/blob/v0.7.3%2Brocm/vllm/platforms/rocm.py
 """
 This file is a platform abstraction for ROCm GPUs,
-adjusted to match the structure and interface of `cuda.py`.
+adjusted to match the structure and interface of `musa.py`.
 """
 
 import torch
@@ -16,32 +16,32 @@ from fastvideo.platforms.interface import (AttentionBackendEnum,
 logger = init_logger(__name__)
 
 
-# ROCm uses the same torch.cuda interface
+# ROCm uses the same torch.musa interface
 class RocmPlatform(Platform):
     _enum = PlatformEnum.ROCM
     device_name: str = "rocm"
-    device_type: str = "cuda"  # torch uses 'cuda' backend string
-    dispatch_key: str = "CUDA"
-    device_control_env_var: str = "CUDA_VISIBLE_DEVICES"
+    device_type: str = "musa"  # torch uses 'musa' backend string
+    dispatch_key: str = "MUSA"
+    device_control_env_var: str = "MUSA_VISIBLE_DEVICES"
 
     @classmethod
     def get_device_capability(cls, device_id: int = 0) -> DeviceCapability:
-        major, minor = torch.cuda.get_device_capability(device_id)
+        major, minor = torch.musa.get_device_capability(device_id)
         return DeviceCapability(major=major, minor=minor)
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
-        return str(torch.cuda.get_device_name(device_id))
+        return str(torch.musa.get_device_name(device_id))
 
     @classmethod
     def get_device_total_memory(cls, device_id: int = 0) -> int:
-        return torch.cuda.get_device_properties(device_id).total_memory
+        return torch.musa.get_device_properties(device_id).total_memory
 
     @classmethod
     def is_async_output_supported(cls, enforce_eager: bool | None) -> bool:
         if enforce_eager:
             logger.warning(
-                "To see benefits of async output processing, enable CUDA graph. "
+                "To see benefits of async output processing, enable MUSA graph. "
                 "Since enforce-eager is enabled, async output processor cannot be used"
             )
             return False
@@ -54,8 +54,8 @@ class RocmPlatform(Platform):
     @classmethod
     def get_current_memory_usage(cls,
                                  device: torch.device | None = None) -> float:
-        torch.cuda.reset_peak_memory_stats(device)
-        return float(torch.cuda.max_memory_allocated(device))
+        torch.musa.reset_peak_memory_stats(device)
+        return float(torch.musa.max_memory_allocated(device))
 
     @classmethod
     def get_attn_backend_cls(cls, selected_backend: AttentionBackendEnum | None,
@@ -119,4 +119,4 @@ class RocmPlatform(Platform):
 
     @classmethod
     def get_device_communicator_cls(cls) -> str:
-        return "fastvideo.distributed.device_communicators.cuda_communicator.CudaCommunicator"  # works for ROCm too
+        return "fastvideo.distributed.device_communicators.musa_communicator.CudaCommunicator"  # works for ROCm too

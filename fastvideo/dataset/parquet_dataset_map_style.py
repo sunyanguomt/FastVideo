@@ -48,7 +48,8 @@ class DP_SP_BatchSampler(Sampler[list[int]]):
         # ── epoch-level RNG ────────────────────────────────────────────────
         rng = torch.Generator().manual_seed(self.seed)
         # Create a random permutation of all indices
-        global_indices = torch.randperm(self.dataset_size, generator=rng)
+        #global_indices = torch.randperm(self.dataset_size, generator=rng)
+        global_indices = torch.arange(self.dataset_size)
 
         if drop_first_row:
             # drop 0 in global_indices

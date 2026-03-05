@@ -130,7 +130,7 @@ The `HuggingFace Model ID` can be directly pass to `from_pretrained()` methods a
 ## Special requirements
 
 ### StepVideo T2V
-- The self-attention in text-encoder (step_llm) only supports CUDA capabilities sm_80 sm_86 and sm_90
+- The self-attention in text-encoder (step_llm) only supports MUSA capabilities sm_80 sm_86 and sm_90
 
 ### Sliding Tile Attention
 - Currently only Hopper GPUs (H100s) are supported.

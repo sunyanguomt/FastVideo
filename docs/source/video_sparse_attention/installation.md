@@ -22,12 +22,12 @@ sudo apt update
 sudo apt install clang-11
 ```
 
-Set up CUDA environment (if using CUDA 12.8):
+Set up MUSA environment (if using MUSA 12.8):
 
 ```bash
-export CUDA_HOME=/usr/local/cuda-12.8
-export PATH=${CUDA_HOME}/bin:${PATH} 
-export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:$LD_LIBRARY_PATH
+export MUSA_HOME=/usr/local/musa-12.8
+export PATH=${MUSA_HOME}/bin:${PATH} 
+export LD_LIBRARY_PATH=${MUSA_HOME}/lib64:$LD_LIBRARY_PATH
 ```
 
 Install VSA:

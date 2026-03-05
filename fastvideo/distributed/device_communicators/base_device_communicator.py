@@ -128,6 +128,11 @@ class DistributedAutograd:
                     0, 2).contiguous()  # hn, shard_seqlen, bs, hd
                 output = torch.empty_like(input_)
 
+                #print("====group: ", group)
+                #print("====input_.device: ", input_.device)
+                #print("====output.device: ", output.device)
+                #print("====dist backend: ", dist.get_backend())
+
                 dist.all_to_all_single(output, input_,
                                        group=group)  # hn, shard_seqlen, bs, hd
 
@@ -198,11 +203,14 @@ class DeviceCommunicatorBase:
         self.unique_name = unique_name
         self.rank = dist.get_rank(cpu_group)
         self.world_size = dist.get_world_size(cpu_group)
-        self.ranks = dist.get_process_group_ranks(cpu_group)
+        self.ranks = None
+        #self.ranks = dist.get_process_group_ranks(cpu_group)
         self.global_rank = dist.get_rank()
         self.global_world_size = dist.get_world_size()
-        self.rank_in_group = dist.get_group_rank(self.cpu_group,
-                                                 self.global_rank)
+        #self.rank_in_group = dist.get_group_rank(self.cpu_group,
+        #                                         self.global_rank)
+        self.rank_in_group = None
+                                                 
 
     def all_reduce(self,
                    input_: torch.Tensor,

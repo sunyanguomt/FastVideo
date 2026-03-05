@@ -13,6 +13,6 @@ installation/mps
 :::
 
 - <project:installation/gpu.md>
-  - NVIDIA CUDA
+  - NVIDIA MUSA
 - <project:installation/mps.md>
   - Apple silicon

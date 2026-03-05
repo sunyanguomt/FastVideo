@@ -9,7 +9,7 @@ MODEL_PATH="weizhou03/Wan2.1-Fun-1.3B-InP-Diffusers"
 DATA_DIR="data/crush-smol_processed_i2v_1_3b_inp/combined_parquet_dataset/"
 VALIDATION_DATASET_FILE="examples/training/finetune/Wan2.1-Fun-1.3B-InP/crush_smol/validation.json"
 NUM_GPUS=8
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
 
 # Training arguments

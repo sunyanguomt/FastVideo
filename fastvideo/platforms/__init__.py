@@ -8,45 +8,46 @@ from fastvideo.logger import init_logger
 # imported by other files, do not remove
 from fastvideo.platforms.interface import AttentionBackendEnum  # noqa: F401
 from fastvideo.platforms.interface import Platform, PlatformEnum
+from fastvideo.platforms.musa import CudaPlatformBase
 from fastvideo.utils import resolve_obj_by_qualname
 
 logger = init_logger(__name__)
 
 
-def cuda_platform_plugin() -> str | None:
-    is_cuda = False
+def musa_platform_plugin() -> str | None:
+    is_musa = True
 
-    try:
-        from fastvideo.utils import import_pynvml
-        pynvml = import_pynvml()  # type: ignore[no-untyped-call]
-        pynvml.nvmlInit()
-        try:
-            # NOTE: Edge case: fastvideo cpu build on a GPU machine.
-            # Third-party pynvml can be imported in cpu build,
-            # we need to check if fastvideo is built with cpu too.
-            # Otherwise, fastvideo will always activate cuda plugin
-            # on a GPU machine, even if in a cpu build.
-            is_cuda = (pynvml.nvmlDeviceGetCount() > 0)
-        finally:
-            pynvml.nvmlShutdown()
-    except Exception as e:
-        if "nvml" not in e.__class__.__name__.lower():
-            # If the error is not related to NVML, re-raise it.
-            raise e
+    #try:
+    #    from fastvideo.utils import import_pynvml
+    #    pynvml = import_pynvml()  # type: ignore[no-untyped-call]
+    #    pynvml.nvmlInit()
+    #    try:
+    #        # NOTE: Edge case: fastvideo cpu build on a GPU machine.
+    #        # Third-party pynvml can be imported in cpu build,
+    #        # we need to check if fastvideo is built with cpu too.
+    #        # Otherwise, fastvideo will always activate musa plugin
+    #        # on a GPU machine, even if in a cpu build.
+    #        is_musa = (pynvml.nvmlDeviceGetCount() > 0)
+    #    finally:
+    #        pynvml.nvmlShutdown()
+    #except Exception as e:
+    #    if "nvml" not in e.__class__.__name__.lower():
+    #        # If the error is not related to NVML, re-raise it.
+    #        raise e
 
-        # CUDA is supported on Jetson, but NVML may not be.
-        import os
+    #    # MUSA is supported on Jetson, but NVML may not be.
+    #    import os
 
-        def cuda_is_jetson() -> bool:
-            return os.path.isfile("/etc/nv_tegra_release") \
-                or os.path.exists("/sys/class/tegra-firmware")
+    #    def musa_is_jetson() -> bool:
+    #        return os.path.isfile("/etc/nv_tegra_release") \
+    #            or os.path.exists("/sys/class/tegra-firmware")
 
-        if cuda_is_jetson():
-            is_cuda = True
-    if is_cuda:
-        logger.info("CUDA is available")
+    #    if musa_is_jetson():
+    #        is_musa = True
+    #if is_musa:
+    #    logger.info("MUSA is available")
 
-    return "fastvideo.platforms.cuda.CudaPlatform" if is_cuda else None
+    return "fastvideo.platforms.musa.CudaPlatform" if is_musa else None
 
 
 def mps_platform_plugin() -> str | None:
@@ -89,10 +90,10 @@ def rocm_platform_plugin() -> str | None:
 
 
 builtin_platform_plugins = {
-    'cuda': cuda_platform_plugin,
-    'rocm': rocm_platform_plugin,
-    'mps': mps_platform_plugin,
-    'cpu': cpu_platform_plugin,
+    'musa': musa_platform_plugin,
+    #'rocm': rocm_platform_plugin,
+    #'mps': mps_platform_plugin,
+    #'cpu': cpu_platform_plugin,
 }
 
 
@@ -101,17 +102,17 @@ def resolve_current_platform_cls_qualname() -> str:
     # vLLM's plugin architecture is suitable for our needs.
 
     # Try MPS first on macOS
-    platform_cls_qualname = mps_platform_plugin()
-    if platform_cls_qualname is not None:
-        return platform_cls_qualname
+    #platform_cls_qualname = mps_platform_plugin()
+    #if platform_cls_qualname is not None:
+    #    return platform_cls_qualname
 
-    # Fall back to ROCm
-    platform_cls_qualname = rocm_platform_plugin()
-    if platform_cls_qualname is not None:
-        return platform_cls_qualname
+    ## Fall back to ROCm
+    #platform_cls_qualname = rocm_platform_plugin()
+    #if platform_cls_qualname is not None:
+    #    return platform_cls_qualname
 
-    # Fall back to CUDA
-    platform_cls_qualname = cuda_platform_plugin()
+    # Fall back to MUSA
+    platform_cls_qualname = musa_platform_plugin()
     if platform_cls_qualname is not None:
         return platform_cls_qualname
 
@@ -128,7 +129,7 @@ _current_platform = None
 _init_trace: str = ''
 
 if TYPE_CHECKING:
-    current_platform: Platform
+    current_platform:Platform
 
 
 def __getattr__(name: str):
@@ -147,7 +148,8 @@ def __getattr__(name: str):
         global _current_platform
         if _current_platform is None:
             platform_cls_qualname = resolve_current_platform_cls_qualname()
-            _current_platform = resolve_obj_by_qualname(platform_cls_qualname)()
+            #_current_platform = resolve_obj_by_qualname(platform_cls_qualname)()
+            _current_platform =CudaPlatformBase()
             global _init_trace
             _init_trace = "".join(traceback.format_stack())
         return _current_platform

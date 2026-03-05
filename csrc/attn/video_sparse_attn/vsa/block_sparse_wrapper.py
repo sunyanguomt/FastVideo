@@ -1,6 +1,6 @@
 import torch
 try:
-    from vsa_cuda import block_sparse_fwd, block_sparse_bwd
+    from vsa_musa import block_sparse_fwd, block_sparse_bwd
 except ImportError:
     block_sparse_fwd = None
     block_sparse_bwd = None
@@ -11,7 +11,7 @@ from typing import Tuple, Optional
 
 
 
-@torch.library.custom_op("vsa::block_sparse_attn_triton", mutates_args=(), device_types="cuda")
+@torch.library.custom_op("vsa::block_sparse_attn_triton", mutates_args=(), device_types="musa")
 def block_sparse_attn_triton(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -44,7 +44,7 @@ def _block_sparse_attn_triton_fake(
     return o, M
 
 
-@torch.library.custom_op("vsa::block_sparse_attn_backward_triton", mutates_args=(), device_types="cuda")
+@torch.library.custom_op("vsa::block_sparse_attn_backward_triton", mutates_args=(), device_types="musa")
 def block_sparse_attn_backward_triton(
     grad_output_padded: torch.Tensor, 
     q_padded: torch.Tensor, 
@@ -93,10 +93,10 @@ def setup_context_triton(ctx, inputs, output):
 block_sparse_attn_triton.register_autograd(backward_triton, setup_context=setup_context_triton)
 
 
-major, minor = torch.cuda.get_device_capability(0)
+major, minor = torch.musa.get_device_capability(0)
 
 if major == 9 and minor == 0:# check if H100
-    @torch.library.custom_op("vsa::block_sparse_attn_SM90", mutates_args=(), device_types="cuda")
+    @torch.library.custom_op("vsa::block_sparse_attn_SM90", mutates_args=(), device_types="musa")
     def block_sparse_attn_SM90(
         q_padded: torch.Tensor,
         k_padded: torch.Tensor, 
@@ -130,7 +130,7 @@ if major == 9 and minor == 0:# check if H100
         return o_padded, lse_padded
 
 
-    @torch.library.custom_op("vsa::block_sparse_attn_backward_SM90", mutates_args=(), device_types="cuda")
+    @torch.library.custom_op("vsa::block_sparse_attn_backward_SM90", mutates_args=(), device_types="musa")
     def block_sparse_attn_backward_SM90(
         grad_output_padded: torch.Tensor, 
         q_padded: torch.Tensor, 

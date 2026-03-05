@@ -34,7 +34,7 @@ class RMSNorm(CustomOp):
                                        else var_hidden_size)
         self.has_weight = has_weight
 
-        self.weight = torch.ones(hidden_size) if current_platform.is_cuda_alike(
+        self.weight = torch.ones(hidden_size) if current_platform.is_musa_alike(
         ) else torch.ones(hidden_size, dtype=dtype)
         if self.has_weight:
             self.weight = nn.Parameter(self.weight)

@@ -265,6 +265,8 @@ class ParquetDatasetSaver:
 
         for field in self.schema_fields:
             if field.endswith('_bytes'):
+                #import pdb
+                #pdb.set_trace()
                 arrays.append(
                     pa.array([record[field] for record in batch_data],
                              type=pa.binary()))

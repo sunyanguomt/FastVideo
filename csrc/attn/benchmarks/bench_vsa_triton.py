@@ -16,8 +16,8 @@ def set_seed(seed: int = 42):
 
     # PyTorch
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if using multi-GPU
+    torch.musa.manual_seed(seed)
+    torch.musa.manual_seed_all(seed)  # if using multi-GPU
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Benchmark Block Sparse Attention')
@@ -30,12 +30,12 @@ def parse_arguments():
 
 def create_input_tensors(batch, head, seq_len, headdim):
     """Create random input tensors for attention."""
-    q = torch.randn(batch, head, seq_len, headdim, dtype=torch.bfloat16, device="cuda")
-    k = torch.randn(batch, head, seq_len, headdim, dtype=torch.bfloat16, device="cuda")
-    v = torch.randn(batch, head, seq_len, headdim, dtype=torch.bfloat16, device="cuda")
+    q = torch.randn(batch, head, seq_len, headdim, dtype=torch.bfloat16, device="musa")
+    k = torch.randn(batch, head, seq_len, headdim, dtype=torch.bfloat16, device="musa")
+    v = torch.randn(batch, head, seq_len, headdim, dtype=torch.bfloat16, device="musa")
     return q, k, v
 
-def generate_block_sparse_pattern(bs, h, num_q_blocks, num_kv_blocks, k, device="cuda"):
+def generate_block_sparse_pattern(bs, h, num_q_blocks, num_kv_blocks, k, device="musa"):
     """
     Generate a block sparse pattern where each q block attends to exactly k kv blocks.
     
@@ -136,7 +136,7 @@ def benchmark_block_sparse_attention(q, k, v, q2k_block_sparse_index, q2k_block_
     o = block_sparse_attn(q_fwd, k_fwd, v_fwd, q2k_block_sparse_index, q2k_block_sparse_num, k2q_block_sparse_index, k2q_block_sparse_num)
     grad_output = torch.randn_like(o)
     o.backward(grad_output)
-    torch.cuda.synchronize()
+    torch.musa.synchronize()
     
     # Benchmark forward+backward
     def forward_backward_fn():
@@ -202,7 +202,7 @@ def main():
         
         # Generate block sparse pattern
         q2k_block_sparse_index, q2k_block_sparse_num, k2q_block_sparse_index, k2q_block_sparse_num, _ = generate_block_sparse_pattern(
-            batch, head, num_q_blocks, num_kv_blocks, topk, device="cuda")
+            batch, head, num_q_blocks, num_kv_blocks, topk, device="musa")
         
         # Benchmark block sparse attention
         sparse_fwd = benchmark_block_sparse_attention(

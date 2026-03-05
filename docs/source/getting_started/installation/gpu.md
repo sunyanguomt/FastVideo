@@ -1,12 +1,12 @@
 # NVIDIA GPU
 
-Instructions to install FastVideo for NVIDIA CUDA GPUs.
+Instructions to install FastVideo for NVIDIA MUSA GPUs.
 
 ## Requirements
 
 - **OS: Linux or Windows WSL**
 - **Python: 3.10-3.12**
-- **CUDA 12.8**
+- **MUSA 12.8**
 - **At least 1 NVIDIA GPU**
 
 ## Set up using Python
@@ -103,7 +103,7 @@ If you're planning to contribute to FastVideo please see the following page:
 ## Hardware Requirements
 
 ### For Basic Inference
-- NVIDIA GPU with CUDA 12.8 support
+- NVIDIA GPU with MUSA 12.8 support
 
 ### For Lora Finetuning
 - 40GB GPU memory each for 2 GPUs with lora

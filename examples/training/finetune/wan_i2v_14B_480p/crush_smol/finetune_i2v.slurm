@@ -26,7 +26,7 @@ export MASTER_PORT=29500
 export NODE_RANK=$SLURM_PROCID
 nodes=( $(scontrol show hostnames $SLURM_JOB_NODELIST) )
 export MASTER_ADDR=${nodes[0]}
-export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
+export MUSA_VISIBLE_DEVICES=$SLURM_LOCALID
 export TOKENIZERS_PARALLELISM=false
 export WANDB_BASE_URL="https://api.wandb.ai"
 export WANDB_MODE=online
@@ -41,7 +41,7 @@ NUM_GPUS=8
 MODEL_PATH="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
 DATA_DIR="data/crush-smol_processed_i2v/combined_parquet_dataset/"
 VALIDATION_DATASET_FILE="examples/training/finetune/wan_i2v_14b_480p/crush_smol/validation.json"
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
 
 # If you do not have 32 GPUs and to fit in memory, you can: 1. increase sp_size. 2. reduce num_latent_t

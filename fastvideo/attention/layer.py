@@ -11,6 +11,7 @@ from fastvideo.distributed.parallel_state import (get_sp_parallel_rank,
 from fastvideo.forward_context import ForwardContext, get_forward_context
 from fastvideo.platforms import AttentionBackendEnum
 from fastvideo.utils import get_compute_dtype
+from fastvideo.attention.backends.sdpa import SDPABackend
 
 
 class DistributedAttention(nn.Module):
@@ -222,10 +223,11 @@ class LocalAttention(nn.Module):
             num_kv_heads = num_heads
 
         dtype = get_compute_dtype()
-        attn_backend = get_attn_backend(
-            head_size,
-            dtype,
-            supported_attention_backends=supported_attention_backends)
+        #attn_backend = get_attn_backend(
+        #    head_size,
+        #    dtype,
+        #    supported_attention_backends=supported_attention_backends)
+        attn_backend = SDPABackend
         impl_cls = attn_backend.get_impl_cls()
         self.attn_impl = impl_cls(num_heads=num_heads,
                                   head_size=head_size,

@@ -84,7 +84,7 @@ def test_lora_training():
 
     summary_file = 'wandb/latest-run/files/wandb-summary.json'
 
-    device_name = torch.cuda.get_device_name()
+    device_name = torch.musa.get_device_name()
     assert "L40S" in device_name, "Test must be run on L40S"
     reference_wandb_summary_file = l40s_reference_wandb_summary_file
     reference_wandb_summary = json.load(open(reference_wandb_summary_file))

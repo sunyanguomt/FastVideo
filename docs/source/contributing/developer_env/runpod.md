@@ -6,11 +6,11 @@ You can easily use the FastVideo Docker image as a custom container on [RunPod](
 
 ## Creating a new pod
 
-Choose a GPU that supports CUDA 12.8
+Choose a GPU that supports MUSA 12.8
 
 Pick 1 or 2 L40S GPU(s)
 
-![RunPod CUDA selection](../../_static/images/runpod_cuda.png)
+![RunPod MUSA selection](../../_static/images/runpod_musa.png)
 
 When creating your pod template, use this image:
 

@@ -4,7 +4,7 @@
 #include <cooperative_groups.h>
 #include <iostream>
 #include <stdio.h>
-#include <c10/cuda/CUDAGuard.h>
+#include <c10/musa/MUSAGuard.h>
 
 // #define CLAMP(value, min, max) ((value) < (min) ? (min) : ((value) > (max) ? (max) : (value)))
 __device__ __forceinline__ int clamp_int(int value, int min, int max) {
@@ -363,7 +363,7 @@ void fwd_attend_ker(const __grid_constant__ fwd_globals<D> g) {
 
 
 #include "pyutils/torch_helpers.cuh"
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/musa/MUSAContext.h>
 #include <iostream>
 
 torch::Tensor 
@@ -423,9 +423,9 @@ sta_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, torch::Tensor o, 
     float* l_ptr = reinterpret_cast<float*>(l_vec.data_ptr<float>());
     float* d_l   = reinterpret_cast<float*>(l_ptr);
 
-    //cudadevicesynchronize();
-    const c10::cuda::OptionalCUDAGuard device_guard(q.device());
-    const cudaStream_t stream = at::cuda::getCurrentCUDAStream().stream(); 
+    //musadevicesynchronize();
+    const c10::musa::OptionalMUSAGuard device_guard(q.device());
+    const musaStream_t stream = at::musa::getCurrentMUSAStream().stream(); 
 
 
     if (head_dim == 128) {
@@ -460,93 +460,93 @@ sta_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, torch::Tensor o, 
             if (!process_text) {
                 if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 3) {
 
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 1, 1, 1, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 1, 1, 1, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 }  else if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 5) {
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 1, 1, 2, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true,1, 1, 2, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 5 && kernel_h_size == 3 && kernel_w_size == 3) {
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 1, 1, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 1, 1, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 }else if (kernel_t_size ==3 && kernel_h_size == 5 && kernel_w_size == 5){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 1, 2, 2, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 1, 2, 2, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size ==5 && kernel_h_size == 6 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 3, 0, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 3, 0, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size ==5 && kernel_h_size == 3 && kernel_w_size == 5){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 1, 2, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 1, 2, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 5 && kernel_h_size == 5 && kernel_w_size == 5){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 2, 2, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 2, 2, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 5 && kernel_h_size == 5 && kernel_w_size == 7){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 2, 3, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 2, 3, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 5 && kernel_h_size == 6 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 3, 5, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 3, 5, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 5 && kernel_h_size == 1 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 0, 0, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 2, 0, 0, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 6 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 0, 3, 5, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true, 0, 3, 5, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 5 && kernel_h_size == 1 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, true, 2, 0, 5, 5, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, true,2, 0, 5, 5, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
@@ -557,9 +557,9 @@ sta_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, torch::Tensor o, 
                     std::cout << "Kernel size: " << kernel_t_size << " " << kernel_h_size << " " << kernel_w_size << std::endl;
                 }
             } else {
-                cudaFuncSetAttribute(
+                musaFuncSetAttribute(
                     fwd_attend_ker<128, false, true, true, 1, 1, 1, 5, 6, 10>,
-                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                    musaFuncAttributeMaxDynamicSharedMemorySize,
                     mem_size
                 );
                 fwd_attend_ker<128, false, true, true, 1, 1, 1, 5, 6, 10><<<grid_text, (32*NUM_WORKERS), mem_size, stream>>>(g);
@@ -569,113 +569,113 @@ sta_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, torch::Tensor o, 
             dim3 grid_image(seq_len/(CONSUMER_WARPGROUPS*kittens::TILE_ROW_DIM<bf16>*4), qo_heads, batch);
             if (kernel_aspect_ratio_flag == 2){
                 if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 3) {
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 1, 1, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 1, 1, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 }  else if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 6) {
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 1, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false,1, 1, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 6 && kernel_h_size == 3 && kernel_w_size == 3) {
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 1, 1, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 1, 1, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size ==3 && kernel_h_size == 6 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 3, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 3, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 }else if (kernel_t_size ==3 && kernel_h_size == 6 && kernel_w_size == 3){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 3, 1, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 3, 1, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size ==6 && kernel_h_size == 3 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 1, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 1, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 6 && kernel_h_size == 6 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 3, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 3, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 6 && kernel_h_size == 1 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 0, 0, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 0, 0, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 6 && kernel_h_size == 1 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 0, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 0, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 }  else if (kernel_t_size == 6 && kernel_h_size == 6 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 3, 0, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 3, 0, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 6 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 3, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 3, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 }  else if (kernel_t_size == 1 && kernel_h_size == 1 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 0, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 0, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 6 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 3, 0, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 3, 0, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 6 && kernel_h_size == 6 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 3, 0, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 3, 0, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 6 && kernel_h_size == 1 && kernel_w_size == 6){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 3, 0, 3, 6, 6, 6>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 3, 0, 3, 6, 6, 6><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
@@ -689,132 +689,132 @@ sta_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, torch::Tensor o, 
             else if (kernel_aspect_ratio_flag == 3) {
                 if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 3) {
 
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 1, 1, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 1, 1, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 5) {
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 1, 2, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false,1, 1, 2, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 3 && kernel_h_size == 5 && kernel_w_size == 5){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 2, 2, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 2, 2, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 3 && kernel_h_size == 6 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 3, 0, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 3, 0, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
 
                 } else if (kernel_t_size == 3 && kernel_h_size == 5 && kernel_w_size == 7){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 2, 3, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 2, 3, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 3 && kernel_h_size == 5 && kernel_w_size == 9){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 2, 4, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 2, 4, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 3 && kernel_h_size == 6 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 3, 5, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 3, 5, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 3 && kernel_h_size == 6 && kernel_w_size == 3){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 3, 1, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 3, 1, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 3 && kernel_h_size == 1 && kernel_w_size == 1){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 0, 0, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 1, 0, 0, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 6 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 3, 5, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 3, 5, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 5 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 2, 5, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 2, 5, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 6 && kernel_w_size == 7){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 3, 3, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 3, 3, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 5 && kernel_w_size == 7){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 2, 3, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 2, 3, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 5 && kernel_w_size == 9){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 2, 4, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false, 0, 2, 4, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 3 && kernel_h_size == 1 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 0, 5, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false,1, 0, 5, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 3 && kernel_h_size == 3 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 1, 1, 5, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false,1, 1, 5, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 3 && kernel_w_size == 10){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 1, 5, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false,0, 1, 5, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
                 } else if (kernel_t_size == 1 && kernel_h_size == 6 && kernel_w_size == 5){
-                    cudaFuncSetAttribute(
+                    musaFuncSetAttribute(
                         fwd_attend_ker<128, false, false, false, 0, 3, 2, 3, 6, 10>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        musaFuncAttributeMaxDynamicSharedMemorySize,
                         mem_size
                     );
                     fwd_attend_ker<128, false, false, false,0, 3, 2, 3, 6, 10><<<grid_image, (32*NUM_WORKERS), mem_size, stream>>>(g);
@@ -831,11 +831,11 @@ sta_forward(torch::Tensor q, torch::Tensor k, torch::Tensor v, torch::Tensor o, 
             }
 
         }
-        CHECK_CUDA_ERROR(cudaGetLastError());
-        // cudaStreamSynchronize(stream);
+        CHECK_MUSA_ERROR(musaGetLastError());
+        // musaStreamSynchronize(stream);
     }
 
     return o;
-    //cudadevicesynchronize();
+    //musadevicesynchronize();
 }
 

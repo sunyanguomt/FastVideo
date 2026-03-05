@@ -10,7 +10,7 @@ VALIDATION_DIR=/mnt/weka/home/hao.zhang/wei/FastVideo/data/crush-smol-single_pro
 NUM_GPUS=8
 export FASTVIDEO_ATTENTION_BACKEND=FLASH_ATTN
 # export FASTVIDEO_ATTENTION_BACKEND=FLASH_ATTN
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
 CHECKPOINT_PATH="outputs_train_test/wan_finetune/checkpoint-10"
 # If you do not have 32 GPUs and to fit in memory, you can: 1. increase sp_size. 2. reduce num_latent_t

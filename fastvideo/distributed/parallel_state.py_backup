@@ -141,7 +141,7 @@ class GroupCoordinator:
     #   3     |   1  |  3   |     1      |       3
     local_rank: int  # local rank used to assign devices
     rank_in_group: int  # rank inside the group
-    #cpu_group: ProcessGroup  # group for CPU communication
+    cpu_group: ProcessGroup  # group for CPU communication
     device_group: ProcessGroup  # group for device communication
     use_device_communicator: bool  # whether to use device communicator
     device_communicator: DeviceCommunicatorBase  # device communicator
@@ -163,7 +163,7 @@ class GroupCoordinator:
         self.rank = torch.distributed.get_rank()
         self.local_rank = local_rank
         self.device_group = None
-        #self.cpu_group = None
+        self.cpu_group = None
 
         for ranks in group_ranks:
             device_group = torch.distributed.new_group(
@@ -199,7 +199,7 @@ class GroupCoordinator:
                 from fastvideo.distributed.device_communicators.cuda_communicator import (
                     CudaCommunicator)
                 self.device_communicator = CudaCommunicator(
-                    cpu_group=self.device_group,
+                    cpu_group=self.cpu_group,
                     device=self.device,
                     device_group=self.device_group,
                     unique_name=self.unique_name,
@@ -383,13 +383,13 @@ class GroupCoordinator:
         if self.rank_in_group == src:
             torch.distributed.broadcast_object_list([obj],
                                                     src=self.ranks[src],
-                                                    group=self.device_group)
+                                                    group=self.cpu_group)
             return obj
         else:
             recv = [None]
             torch.distributed.broadcast_object_list(recv,
                                                     src=self.ranks[src],
-                                                    group=self.device_group)
+                                                    group=self.cpu_group)
             return recv[0]
 
     def broadcast_object_list(self,
@@ -425,18 +425,18 @@ class GroupCoordinator:
 
         size_tensor = torch.tensor([object_tensor.numel()],
                                    dtype=torch.long,
-                                   device=self.device)
+                                   device="cpu")
 
         # Send object size
 
         torch.distributed.send(size_tensor,
                                dst=self.ranks[dst],
-                               group=self.device_group)
+                               group=self.cpu_group)
 
         # Send object
-        torch.distributed.send(object_tensor.to(self.device),
+        torch.distributed.send(object_tensor,
                                dst=self.ranks[dst],
-                               group=self.device_group)
+                               group=self.cpu_group)
 
         return None
 
@@ -449,27 +449,27 @@ class GroupCoordinator:
         assert src != self.rank_in_group, (
             "Invalid source rank. Source rank is the same as the current rank.")
 
-        size_tensor = torch.empty(1, dtype=torch.long, device=self.device)
+        size_tensor = torch.empty(1, dtype=torch.long, device="cpu")
 
         # Receive object size
         rank_size = torch.distributed.recv(size_tensor,
                                            src=self.ranks[src],
-                                           group=self.device_group)
+                                           group=self.cpu_group)
 
         # Tensor to receive serialized objects into.
         object_tensor = torch.empty(  # type: ignore[call-overload]
             size_tensor.item(),  # type: ignore[arg-type]
             dtype=torch.uint8,
-            device=self.device)
+            device="cpu")
 
         rank_object = torch.distributed.recv(object_tensor,
                                              src=self.ranks[src],
-                                             group=self.device_group)
+                                             group=self.cpu_group)
 
         assert rank_object == rank_size, (
             "Received object sender rank does not match the size sender rank.")
 
-        obj = pickle.loads(object_tensor.cpu().numpy().tobytes())
+        obj = pickle.loads(object_tensor.numpy().tobytes())
 
         return obj
 
@@ -488,7 +488,7 @@ class GroupCoordinator:
             return tensor_dict
 
         group = self.device_group
-        metadata_group = self.device_group
+        metadata_group = self.cpu_group
         assert src < self.world_size, f"Invalid src rank ({src})"
 
         rank_in_group = self.rank_in_group
@@ -577,7 +577,7 @@ class GroupCoordinator:
                            all_gather_group.rank_in_group)
 
         group = self.device_group
-        metadata_group = self.device_group
+        metadata_group = self.cpu_group
 
         if dst is None:
             dst = (self.rank_in_group + 1) % self.world_size
@@ -630,7 +630,7 @@ class GroupCoordinator:
                            all_gather_group.rank_in_group)
 
         group = self.device_group
-        metadata_group = self.device_group
+        metadata_group = self.cpu_group
 
         if src is None:
             src = (self.rank_in_group - 1) % self.world_size
@@ -685,8 +685,7 @@ class GroupCoordinator:
         secretly created GPU tensors. It is easy to mess up the current
         device. Use the CPU group instead.
         """
-        #torch.musa.synchronize()
-        torch.distributed.barrier(group=self.device_group)
+        torch.distributed.barrier(group=self.cpu_group)
 
     def send(self, tensor: torch.Tensor, dst: int | None = None) -> None:
         """Sends a tensor to the destination rank in a non-blocking way"""
@@ -705,9 +704,9 @@ class GroupCoordinator:
         if self.device_group is not None:
             torch.distributed.destroy_process_group(self.device_group)
             self.device_group = None
-        #if self.cpu_group is not None:
-        #    torch.distributed.destroy_process_group(self.cpu_group)
-        #    self.cpu_group = None
+        if self.cpu_group is not None:
+            torch.distributed.destroy_process_group(self.cpu_group)
+            self.cpu_group = None
         if self.device_communicator is not None:
             self.device_communicator.destroy()
         if self.mq_broadcaster is not None:

@@ -2,9 +2,9 @@ import torch
 from typing import Tuple
 block_sparse_attn=None
 import torch
-major, minor = torch.cuda.get_device_capability(0)
+major, minor = torch.musa.get_device_capability(0)
 if major == 9 and minor == 0:# check if H100
-    from vsa_cuda import block_sparse_fwd, block_sparse_bwd
+    from vsa_musa import block_sparse_fwd, block_sparse_bwd
     from vsa.block_sparse_wrapper import block_sparse_attn_SM90
     block_sparse_attn = block_sparse_attn_SM90
 else:

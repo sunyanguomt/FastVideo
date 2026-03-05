@@ -2,10 +2,10 @@
 #include <ATen/ATen.h>
 
 #include <vector>
-#include <cuda_fp16.h>
-#include <cuda_bf16.h>
+#include <musa_fp16.h>
+#include <musa_bf16.h>
 
-#include <cuda_runtime.h>
+#include <musa_runtime.h>
 
 #ifdef TK_COMPILE_ST_ATTN
 extern torch::Tensor sta_forward(

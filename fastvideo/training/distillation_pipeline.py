@@ -175,7 +175,7 @@ class DistillationPipeline(TrainingPipeline):
         if training_args.warp_denoising_step:  # Warp the denoising step according to the scheduler time shift
             timesteps = torch.cat((self.noise_scheduler.timesteps.cpu(),
                                    torch.tensor([0],
-                                                dtype=torch.float32))).cuda()
+                                                dtype=torch.float32))).musa()
             self.denoising_step_list = timesteps[1000 -
                                                  self.denoising_step_list]
             logger.info("Warping denoising_step_list")
@@ -1122,7 +1122,7 @@ class DistillationPipeline(TrainingPipeline):
                                                         latents.dtype)
                 else:
                     latents += self.vae.shift_factor
-                with torch.autocast("cuda", dtype=torch.bfloat16):
+                with torch.autocast("musa", dtype=torch.bfloat16):
                     video = self.vae.decode(latents)
                 video = (video / 2 + 0.5).clamp(0, 1)
                 video = video.cpu().float()
@@ -1153,7 +1153,7 @@ class DistillationPipeline(TrainingPipeline):
                             latents.device, latents.dtype)
                     else:
                         latents += self.vae.shift_factor
-                with torch.autocast("cuda", dtype=torch.bfloat16):
+                with torch.autocast("musa", dtype=torch.bfloat16):
                     video = self.vae.decode(latents)
                 video = (video / 2 + 0.5).clamp(0, 1)
                 video = video.cpu().float()
@@ -1186,7 +1186,7 @@ class DistillationPipeline(TrainingPipeline):
         # Set random seeds for deterministic training
         self.noise_random_generator = torch.Generator(device="cpu").manual_seed(
             self.seed)
-        self.noise_gen_cuda = torch.Generator(device="cuda").manual_seed(
+        self.noise_gen_musa = torch.Generator(device="musa").manual_seed(
             self.seed)
         self.validation_random_generator = torch.Generator(
             device="cpu").manual_seed(self.seed)
@@ -1247,7 +1247,7 @@ class DistillationPipeline(TrainingPipeline):
                     f"Created generator EMA at step {step} with decay={self.training_args.ema_decay}"
                 )
 
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with torch.autocast("musa", dtype=torch.bfloat16):
                 training_batch = self.train_one_step(training_batch)
 
             total_loss = training_batch.total_loss

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 GPU_NUM=1 # 2,4,8
-MODEL_PATH="/data/caizhi/wan2.1_i2v_diffusers"
+MODEL_PATH="/data/caizhi/wan2.2_i2v_diffusers/"
 DATASET_PATH="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/crush-smol/"
-OUTPUT_DIR="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/crush-smol_processed_i2v/"
+OUTPUT_DIR="/data/caizhi/FastVideo_wan2.2/FastVideo/examples/training/finetune/wan_i2v_14B_480p/crush_smol/data/wan2.2_crush-smol_processed_i2v/"
 
 torchrun --master_port 29501 --nproc_per_node=$GPU_NUM \
     -m fastvideo.pipelines.preprocess.v1_preprocessing_new \

@@ -5,7 +5,7 @@ This page contains step-by-step instructions to get you quickly started with vid
 ## Requirements
 - **OS**: Linux (Tested on Ubuntu 22.04+)
 - **Python**: 3.10-3.12
-- **CUDA**: 12.8
+- **MUSA**: 12.8
 - **GPU**: At least one NVIDIA GPU
 
 ## Installation
@@ -96,7 +96,7 @@ if __name__ == '__main__':
 Common issues and their solutions:
 
 ### Out of Memory Errors
-If you encounter CUDA out of memory errors:
+If you encounter MUSA out of memory errors:
 - Reduce `num_frames` or video resolution
 - Enable memory optimization with `enable_model_cpu_offload`
 - Try a smaller model or use distilled versions

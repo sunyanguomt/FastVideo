@@ -65,7 +65,10 @@ class SDPAImpl(AttentionImpl):
         }
         if query.shape[1] != key.shape[1]:
             attn_kwargs["enable_gqa"] = True
-        output = torch.nn.functional.scaled_dot_product_attention(
-            query, key, value, **attn_kwargs)
+        #print("========================sdpa=================")
+        #from torch.backends.musa import sdpa_kernel, SDPBackend
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+            output = torch.nn.functional.scaled_dot_product_attention(
+                query, key, value, **attn_kwargs)
         output = output.transpose(1, 2)
         return output

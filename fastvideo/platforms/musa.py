@@ -15,8 +15,8 @@ from typing_extensions import ParamSpec
 import fastvideo.envs as envs
 from fastvideo.logger import init_logger
 from fastvideo.platforms.interface import (AttentionBackendEnum,
-                                           DeviceCapability, Platform,
-                                           PlatformEnum)
+                                              DeviceCapability, Platform,
+                                              PlatformEnum)
 from fastvideo.utils import import_pynvml
 
 logger = init_logger(__name__)
@@ -28,7 +28,7 @@ pynvml = import_pynvml()  # type: ignore[no-untyped-call]
 
 # pytorch 2.5 uses cudnn sdpa by default, which will cause crash on some models
 # see https://github.com/huggingface/diffusers/issues/9704 for details
-torch.backends.musa.enable_cudnn_sdp(False)
+#torch.backends.musa.enable_cudnn_sdp(False)
 
 
 def device_id_to_physical_device_id(device_id: int) -> int:
@@ -72,15 +72,15 @@ class CudaPlatformBase(Platform):
     @classmethod
     def get_device_capability(cls,
                               device_id: int = 0) -> DeviceCapability | None:
-        raise NotImplementedError
+        return DeviceCapability(major=0, minor=0)
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
-        raise NotImplementedError
+        return "musa"
 
     @classmethod
     def get_device_total_memory(cls, device_id: int = 0) -> int:
-        raise NotImplementedError
+        return 80
 
     @classmethod
     def is_async_output_supported(cls, enforce_eager: bool | None) -> bool:
@@ -94,7 +94,7 @@ class CudaPlatformBase(Platform):
 
     @classmethod
     def is_full_nvlink(cls, device_ids: list[int]) -> bool:
-        raise NotImplementedError
+        return True
 
     @classmethod
     def log_warnings(cls) -> None:

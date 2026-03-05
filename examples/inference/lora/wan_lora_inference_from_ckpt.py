@@ -13,7 +13,7 @@ def main():
         dit_cpu_offload=False,
         vae_cpu_offload=True,
         text_encoder_cpu_offload=True,
-        pin_cpu_memory=True, # set to false if low CPU RAM or hit obscure "CUDA error: Invalid argument" 
+        pin_cpu_memory=True, # set to false if low CPU RAM or hit obscure "MUSA error: Invalid argument" 
         lora_path="checkpoints/wan_t2v_finetune_lora/checkpoint-160/transformer",
         lora_nickname="crush_smol"
     )

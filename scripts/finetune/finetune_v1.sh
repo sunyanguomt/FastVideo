@@ -6,7 +6,7 @@ export TOKENIZERS_PARALLELISM=false
 DATA_DIR=[your data dir]
 VALIDATION_DATASET_FILE=[your validation dataset file]
 NUM_GPUS=4
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
 
 # Make sure that num_latent_t is a multiple of sp_size

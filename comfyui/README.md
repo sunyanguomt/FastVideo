@@ -22,7 +22,7 @@ Example of Wan2.1-I2V-14B-480P-Diffusers model running on 4 GPUs.
 ### Requirements
 
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
-- CUDA-capable GPU(s) with sufficient VRAM
+- MUSA-capable GPU(s) with sufficient VRAM
 
 ### Install using ComfyUI Manager
 

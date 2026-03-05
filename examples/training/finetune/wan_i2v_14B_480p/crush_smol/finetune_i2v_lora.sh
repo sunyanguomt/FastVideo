@@ -8,7 +8,7 @@ MODEL_PATH="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
 DATA_DIR="data/crush-smol_processed_i2v/combined_parquet_dataset/"
 VALIDATION_DIR="data/crush-smol_processed_i2v/validation_parquet_dataset/"
 NUM_GPUS=4
-# export CUDA_VISIBLE_DEVICES=4,5
+# export MUSA_VISIBLE_DEVICES=4,5
 # IP=[MASTER NODE IP]
 
 # Training arguments

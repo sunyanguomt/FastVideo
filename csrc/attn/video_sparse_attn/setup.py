@@ -3,7 +3,7 @@ import subprocess
 
 from config_vsa import kernels, sources, target
 from setuptools import find_packages, setup
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+from torch.utils.cpp_extension import BuildExtension, MUSAExtension
 
 target = target.lower()
 
@@ -26,8 +26,8 @@ print('vsa root:', tk_root)
 print('Python include:', python_include)
 print('Torch include directories:', torch_include)
 
-# CUDA flags
-cuda_flags = [
+# MUSA flags
+musa_flags = [
     '-DNDEBUG', '-Xcompiler=-Wno-psabi', '-Xcompiler=-fno-strict-aliasing', '--expt-extended-lambda',
     '--expt-relaxed-constexpr', '-forward-unknown-to-host-compiler', '--use_fast_math', '-std=c++20', '-O3',
     '-Xnvlink=--verbose', '-Xptxas=--verbose', '-Xptxas=--warn-on-spills', f'-I{tk_root}/include',
@@ -36,8 +36,8 @@ cuda_flags = [
 cpp_flags = ['-std=c++20', '-O3']
 
 if target == 'h100':
-    cuda_flags.append('-DKITTENS_HOPPER')
-    cuda_flags.append('-arch=sm_90a')
+    musa_flags.append('-DKITTENS_HOPPER')
+    musa_flags.append('-arch=sm_90a')
 else:
     raise ValueError(f'Target {target} not supported')
 
@@ -53,13 +53,13 @@ for k in kernels:
 
 
 ext_modules = [
-    CUDAExtension('vsa_cuda',
+    MUSAExtension('vsa_musa',
         sources=source_files,
         extra_compile_args={
             'cxx': cpp_flags,
-            'nvcc': cuda_flags
+            'nvcc': musa_flags
         },
-        libraries=['cuda'])
+        libraries=['musa'])
 ]
 
 
@@ -74,7 +74,7 @@ setup(name=PACKAGE_NAME,
       cmdclass={'build_ext': BuildExtension},
       classifiers=[
           "Programming Language :: Python :: 3",
-          "Environment :: GPU :: NVIDIA CUDA :: 12",
+          "Environment :: GPU :: NVIDIA MUSA :: 12",
           "License :: OSI Approved :: Apache Software License",
       ],
       python_requires='>=3.10',

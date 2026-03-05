@@ -64,7 +64,7 @@ def generate_tensor(shape, dtype, device):
     tensor = torch.randn(shape, dtype=dtype, device=device)
     return tensor
 
-def generate_variable_block_sizes(num_blocks, min_size=32, max_size=64, device="cuda"):
+def generate_variable_block_sizes(num_blocks, min_size=32, max_size=64, device="musa"):
     return torch.randint(min_size, max_size + 1, (num_blocks,), device=device, dtype=torch.int32)
 
 
@@ -81,7 +81,7 @@ def check_correctness(h, d, num_blocks, k,  num_iterations=20, error_mode='all')
         'gV': {'sum_diff': 0.0, 'sum_abs': 0.0, 'max_diff': 0.0},
     }
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "musa" if torch.musa.is_available() else "cpu"
     variable_block_sizes = generate_variable_block_sizes(num_blocks, device=device)
     S = int(variable_block_sizes.sum().item())
     padded_S = num_blocks * BLOCK_M
@@ -107,8 +107,8 @@ def check_correctness(h, d, num_blocks, k,  num_iterations=20, error_mode='all')
                 results[name]['sum_abs'] += torch.sum(torch.abs(pt)).item()
                 rel_max_diff = torch.max(abs_diff) / torch.mean(torch.abs(pt))
                 results[name]['max_diff'] = max(results[name]['max_diff'], rel_max_diff.item())
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if torch.musa.is_available():
+            torch.musa.empty_cache()
 
     total_elements = h * S * d * num_iterations
     for name, data in results.items():

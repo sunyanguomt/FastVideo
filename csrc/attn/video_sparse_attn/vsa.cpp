@@ -2,10 +2,10 @@
 #include <ATen/ATen.h>
 
 #include <vector>
-#include <cuda_fp16.h>
-#include <cuda_bf16.h>
+#include <musa_fp16.h>
+#include <musa_bf16.h>
 
-#include <cuda_runtime.h>
+#include <musa_runtime.h>
 
 #ifdef TK_COMPILE_BLOCK_SPARSE
 extern std::vector<torch::Tensor> block_sparse_attention_forward(

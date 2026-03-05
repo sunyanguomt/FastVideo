@@ -26,6 +26,8 @@ class PreprocessWorkflowI2V(PreprocessWorkflow):
         for batch in tqdm(self.training_dataloader,
                           desc="Preprocessing training dataset",
                           unit="batch"):
+            #import pdb
+            #pdb.set_trace()
             forward_batch: PreprocessBatch = self.video_forward_batch_builder(
                 batch)
 

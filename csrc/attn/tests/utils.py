@@ -1,6 +1,6 @@
 import torch
 
-def generate_block_sparse_mask_for_function(h, num_blocks, k, device="cuda"):
+def generate_block_sparse_mask_for_function(h, num_blocks, k, device="musa"):
     """
     Generate block sparse mask of shape [h, num_blocks, num_blocks].
     
@@ -22,7 +22,7 @@ def generate_block_sparse_mask_for_function(h, num_blocks, k, device="cuda"):
     return block_sparse_mask
 
 
-def create_full_mask_from_block_mask(block_sparse_mask, variable_block_sizes, device="cuda"):
+def create_full_mask_from_block_mask(block_sparse_mask, variable_block_sizes, device="musa"):
     """
     Convert block-level sparse mask to full attention mask.
     
