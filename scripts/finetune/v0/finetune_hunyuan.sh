@@ -15,7 +15,7 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --train_batch_size=2 \
     --num_latent_t 32 \
     --sp_size 8 \
-    --train_sp_batch_size 2 \
+    --train_sp_batch_size 1 \
     --dataloader_num_workers 4 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=20 \
@@ -40,12 +40,12 @@ torchrun --nnodes 1 --nproc_per_node 8 \
     --use_fused_rmsnorm \
     --use_fused_rope \
     --enable_hybrid_ac \
-    # --te_fp8_format "hybrid" \
-    # --te_fp8_scaling "tensor" \
-    # --te_fp8_amax_history_len 1 \
-    # --te_fp8_amax_compute_algo "most_recent" \
-    # --use_te_fp8 \
-    # --te_fp8_layers "1-2"
+    --te_fp8_format "hybrid" \
+    --te_fp8_scaling "tensor" \
+    --te_fp8_amax_history_len 1 \
+    --te_fp8_amax_compute_algo "most_recent" \
+    --use_te_fp8 \
+    --te_fp8_layers "5-17,22-55"
     # --te_fp8_block_tile_size 128 \
 
     # --fsdp_prefetch_layer 1         # 收益低 容易hang

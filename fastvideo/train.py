@@ -9,6 +9,7 @@ import time
 from collections import deque
 
 import torch
+import torch.nn as nn
 import torch.distributed as dist
 import wandb
 from accelerate.utils import set_seed
@@ -161,6 +162,57 @@ def _configure_te_fp8_layers(transformer, layer_spec, fp8_recipe):
         _wrap_module_forward_with_te_fp8(all_blocks[idx], fp8_recipe)
 
     return selected_layers, total_layers
+
+
+def _replace_te_linear_with_nn_linear(module, attr_name):
+    old_linear = getattr(module, attr_name, None)
+    if old_linear is None:
+        return False
+    if isinstance(old_linear, nn.Linear):
+        return False
+    if not hasattr(old_linear, "weight"):
+        return False
+
+    weight = old_linear.weight
+    bias = getattr(old_linear, "bias", None)
+    out_features, in_features = weight.shape
+    new_linear = nn.Linear(
+        in_features,
+        out_features,
+        bias=bias is not None,
+        device=weight.device,
+        dtype=weight.dtype,
+    )
+    with torch.no_grad():
+        new_linear.weight.copy_(weight.detach())
+        if bias is not None:
+            new_linear.bias.copy_(bias.detach())
+    setattr(module, attr_name, new_linear)
+    return True
+
+
+def _convert_non_fp8_layers_to_nn_linear(transformer, selected_layers):
+    block_groups = []
+    if hasattr(transformer, "double_blocks"):
+        block_groups.append(transformer.double_blocks)
+    if hasattr(transformer, "single_blocks"):
+        block_groups.append(transformer.single_blocks)
+    if len(block_groups) == 0:
+        raise ValueError("Layer-wise TE FP8 requires transformer.double_blocks and/or transformer.single_blocks")
+
+    all_blocks = []
+    for blocks in block_groups:
+        all_blocks.extend(list(blocks))
+
+    replaced_linears = 0
+    for idx, block in enumerate(all_blocks):
+        if idx in selected_layers:
+            continue
+        for attr_name in ("img_attn_q", "img_attn_k", "img_attn_v", "linear_q", "linear_k", "linear_v"):
+            if _replace_te_linear_with_nn_linear(block, attr_name):
+                replaced_linears += 1
+
+    return replaced_linears, len(all_blocks)
 
 def train_one_step(
     transformer,
@@ -380,10 +432,12 @@ def main(args):
             block_tile_size=args.te_fp8_block_tile_size,
         )
         selected_layers, total_layers = _configure_te_fp8_layers(transformer, args.te_fp8_layers, te_fp8_recipe)
+        replaced_linears, _ = _convert_non_fp8_layers_to_nn_linear(transformer, selected_layers)
         main_print(
             f"--> Layer-wise TE FP8 enabled for {len(selected_layers)}/{total_layers} layers: "
             f"{sorted(selected_layers)}"
         )
+        main_print(f"--> Replaced TE Linear with nn.Linear in non-FP8 layers: {replaced_linears}")
 
     main_print(
         f"  Total training parameters = {sum(p.numel() for p in transformer.parameters() if p.requires_grad) / 1e6} M")

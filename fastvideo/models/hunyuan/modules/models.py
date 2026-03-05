@@ -184,12 +184,12 @@ class MMDoubleStreamBlock(nn.Module):
         self.img_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
         # self.img_attn_qkv = nn.Linear(hidden_size, hidden_size * 3, bias=qkv_bias, **factory_kwargs)
-        # self.img_attn_q = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
-        # self.img_attn_k = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
-        # self.img_attn_v = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
-        self.img_attn_q = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
-        self.img_attn_k = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
-        self.img_attn_v = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
+        self.img_attn_q = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        self.img_attn_k = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        self.img_attn_v = nn.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **factory_kwargs)
+        # self.img_attn_q = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
+        # self.img_attn_k = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
+        # self.img_attn_v = te.pytorch.Linear(hidden_size, hidden_size * 1, bias=qkv_bias, **te_factory_kwargs)
         self._register_load_state_dict_pre_hook(_prehook_split_img_attn_qkv, with_module=True)
         
         qk_norm_layer = get_norm_layer(qk_norm_type)
@@ -439,16 +439,18 @@ class MMSingleStreamBlock(nn.Module):
 
         # qkv and mlp_in
         # self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_hidden_dim, **factory_kwargs)
-        # self.linear_q = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
-        # self.linear_k = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
-        # self.linear_v = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
-        self.linear_q = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
-        self.linear_k = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
-        self.linear_v = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
-        self.linear_mlp = nn.Linear(hidden_size, mlp_hidden_dim, **factory_kwargs)
+        self.linear_q = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        self.linear_k = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        self.linear_v = nn.Linear(hidden_size, hidden_size, **factory_kwargs)
+        # self.linear_q = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
+        # self.linear_k = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
+        # self.linear_v = te.pytorch.Linear(hidden_size, hidden_size, **te_factory_kwargs)
+        # self.linear_mlp = nn.Linear(hidden_size, mlp_hidden_dim, **factory_kwargs)
+        self.linear_mlp = te.pytorch.Linear(hidden_size, mlp_hidden_dim, **te_factory_kwargs)
         self._register_load_state_dict_pre_hook(_prehook_split_linear1, with_module=True)
         # proj and mlp_out
         self.linear2 = nn.Linear(hidden_size + mlp_hidden_dim, hidden_size, **factory_kwargs)
+        # self.linear2 = te.pytorch.Linear(hidden_size + mlp_hidden_dim, hidden_size, **te_factory_kwargs)
 
         qk_norm_layer = get_norm_layer(qk_norm_type)
         self.q_norm = (qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **norm_layer_factory_kwargs)
@@ -596,6 +598,7 @@ class MMSingleStreamBlock(nn.Module):
         W_mlp = W[:, self.hidden_size :]
 
         output = torch.nn.functional.linear(attn, W_attn, b2) + torch.nn.functional.linear(mlp_act, W_mlp, None)
+        # output = self.linear2(torch.cat((attn, self.mlp_act(mlp)), 2))
         return x + apply_gate(output, gate=mod_gate)
 
 
